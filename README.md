@@ -24,7 +24,7 @@ final class Parser
 }
 ```
 
-By default, the generator will use a seeded randomizer so that you work on the same dataset as others. You can overwrite the seed with the `data:generate --seed=` parameter, and you can also pass in the `data:generate --no-seed` for a truly random data set. The real data set was generated without a seed.
+By default, the generator will use a seeded randomizer so that you work on the same dataset as others. You can overwrite the seed with the `data:generate --seed=123456` parameter, and you can also pass in the `data:generate --no-seed` parameter for a truly random data set. The real data set was generated without a seed.
 
 You can always run your implementation to check your work:
 
