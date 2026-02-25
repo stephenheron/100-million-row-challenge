@@ -17,26 +17,18 @@ final class Parser
         stream_set_read_buffer($input, 1024 * 1024);
 
         $visits = [];
-        $hostPrefixLength = 19; // https://stitcher.io
+        $pathOffset = 19; // strlen('https://stitcher.io')
 
         while (($line = fgets($input)) !== false) {
-            $commaPosition = strpos($line, ',');
-            $path = substr($line, $hostPrefixLength, $commaPosition - $hostPrefixLength);
-            $date = substr($line, $commaPosition + 1, 10);
+            $path = substr($line, $pathOffset, -27);
+            $date = substr($line, -26, 10);
 
-            if (! isset($visits[$path])) {
-                $visits[$path] = [];
+            if (isset($visits[$path][$date])) {
+                ++$visits[$path][$date];
+                continue;
             }
 
-            $pathVisits = &$visits[$path];
-
-            if (isset($pathVisits[$date])) {
-                ++$pathVisits[$date];
-            } else {
-                $pathVisits[$date] = 1;
-            }
-
-            unset($pathVisits);
+            $visits[$path][$date] = 1;
         }
 
         fclose($input);
