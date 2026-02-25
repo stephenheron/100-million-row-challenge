@@ -41,21 +41,20 @@ final class Parser
             }
 
             $buffer .= $chunk;
-            $bufferLength = strlen($buffer);
-            $lineStart = 0;
+            $lastNewlinePosition = strrpos($buffer, "\n");
 
-            while ($lineStart < $bufferLength) {
-                $lineLength = strcspn($buffer, "\n", $lineStart);
-                $newlinePosition = $lineStart + $lineLength;
+            if ($lastNewlinePosition === false) {
+                continue;
+            }
 
-                if ($newlinePosition >= $bufferLength) {
-                    break;
-                }
+            $process = substr($buffer, 0, $lastNewlinePosition + 1);
+            $buffer = substr($buffer, $lastNewlinePosition + 1);
 
-                $pathStart = $lineStart + $pathOffset;
-                $dateStart = $newlinePosition - 25;
-                $path = substr($buffer, $pathStart, $dateStart - $pathStart - 1);
-                $date = substr($buffer, $dateStart, 10);
+            $line = strtok($process, "\n");
+
+            while ($line !== false) {
+                $path = substr($line, $pathOffset, -26);
+                $date = substr($line, -25, 10);
 
                 if (isset($dateToId[$date])) {
                     $dateId = $dateToId[$date];
@@ -71,11 +70,7 @@ final class Parser
                     $visits[$path][$dateId] = 1;
                 }
 
-                $lineStart = $newlinePosition + 1;
-            }
-
-            if ($lineStart !== 0) {
-                $buffer = substr($buffer, $lineStart);
+                $line = strtok("\n");
             }
         }
 
