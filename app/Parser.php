@@ -17,6 +17,8 @@ final class Parser
         stream_set_read_buffer($input, 8 * 1024 * 1024);
 
         $visits = [];
+        $dateToId = [];
+        $idToDate = [];
         $pathOffset = 19; // strlen('https://stitcher.io')
         $chunkSize = 1024 * 1024;
         $buffer = '';
@@ -40,11 +42,18 @@ final class Parser
             foreach ($lines as $line) {
                 $path = substr($line, $pathOffset, -26);
                 $date = substr($line, -25, 10);
-
-                if (isset($visits[$path][$date])) {
-                    ++$visits[$path][$date];
+                if (isset($dateToId[$date])) {
+                    $dateId = $dateToId[$date];
                 } else {
-                    $visits[$path][$date] = 1;
+                    $dateId = count($idToDate);
+                    $dateToId[$date] = $dateId;
+                    $idToDate[$dateId] = $date;
+                }
+
+                if (isset($visits[$path][$dateId])) {
+                    ++$visits[$path][$dateId];
+                } else {
+                    $visits[$path][$dateId] = 1;
                 }
             }
         }
@@ -52,21 +61,38 @@ final class Parser
         if ($buffer !== '') {
             $path = substr($buffer, $pathOffset, -26);
             $date = substr($buffer, -25, 10);
-
-            if (isset($visits[$path][$date])) {
-                ++$visits[$path][$date];
+            if (isset($dateToId[$date])) {
+                $dateId = $dateToId[$date];
             } else {
-                $visits[$path][$date] = 1;
+                $dateId = count($idToDate);
+                $dateToId[$date] = $dateId;
+                $idToDate[$dateId] = $date;
+            }
+
+            if (isset($visits[$path][$dateId])) {
+                ++$visits[$path][$dateId];
+            } else {
+                $visits[$path][$dateId] = 1;
             }
         }
 
         fclose($input);
 
-        foreach ($visits as &$dates) {
-            ksort($dates);
+        asort($idToDate, SORT_STRING);
+
+        foreach ($visits as &$countsByDateId) {
+            $dates = [];
+
+            foreach ($idToDate as $dateId => $date) {
+                if (isset($countsByDateId[$dateId])) {
+                    $dates[$date] = $countsByDateId[$dateId];
+                }
+            }
+
+            $countsByDateId = $dates;
         }
 
-        unset($dates);
+        unset($countsByDateId);
 
         $encoded = json_encode($visits, JSON_PRETTY_PRINT);
 
