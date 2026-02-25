@@ -34,40 +34,29 @@ final class Parser
             }
 
             $buffer .= $chunk;
-            $start = 0;
+            $lines = explode("\n", $buffer);
+            $buffer = array_pop($lines);
 
-            while (($newlinePosition = strpos($buffer, "\n", $start)) !== false) {
-                $dateStart = $newlinePosition - 25;
-                $path = substr($buffer, $start + $pathOffset, $dateStart - $start - $pathOffset - 1);
-                $date = substr($buffer, $dateStart, 10);
+            foreach ($lines as $line) {
+                $path = substr($line, $pathOffset, -26);
+                $date = substr($line, -25, 10);
 
                 if (isset($visits[$path][$date])) {
                     ++$visits[$path][$date];
                 } else {
                     $visits[$path][$date] = 1;
                 }
-
-                $start = $newlinePosition + 1;
-            }
-
-            if ($start !== 0) {
-                $buffer = substr($buffer, $start);
             }
         }
 
         if ($buffer !== '') {
-            $bufferLength = strlen($buffer);
+            $path = substr($buffer, $pathOffset, -26);
+            $date = substr($buffer, -25, 10);
 
-            if ($bufferLength > 26) {
-                $dateStart = $bufferLength - 25;
-                $path = substr($buffer, $pathOffset, $dateStart - $pathOffset - 1);
-                $date = substr($buffer, $dateStart, 10);
-
-                if (isset($visits[$path][$date])) {
-                    ++$visits[$path][$date];
-                } else {
-                    $visits[$path][$date] = 1;
-                }
+            if (isset($visits[$path][$date])) {
+                ++$visits[$path][$date];
+            } else {
+                $visits[$path][$date] = 1;
             }
         }
 
