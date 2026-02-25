@@ -41,34 +41,41 @@ final class Parser
             }
 
             $buffer .= $chunk;
-            $lastNewlinePosition = strrpos($buffer, "\n");
+            $bufferLength = strlen($buffer);
+            $lineStart = 0;
 
-            if ($lastNewlinePosition === false) {
-                continue;
+            while ($lineStart < $bufferLength) {
+                $lineLength = strcspn($buffer, "\n", $lineStart);
+                $newlinePosition = $lineStart + $lineLength;
+
+                if ($newlinePosition >= $bufferLength) {
+                    break;
+                }
+
+                $pathStart = $lineStart + $pathOffset;
+                $dateStart = $newlinePosition - 25;
+                $path = substr($buffer, $pathStart, $dateStart - $pathStart - 1);
+                $date = substr($buffer, $dateStart, 10);
+
+                if (isset($dateToId[$date])) {
+                    $dateId = $dateToId[$date];
+                } else {
+                    $dateId = count($idToDate);
+                    $dateToId[$date] = $dateId;
+                    $idToDate[$dateId] = $date;
+                }
+
+                if (isset($visits[$path][$dateId])) {
+                    ++$visits[$path][$dateId];
+                } else {
+                    $visits[$path][$dateId] = 1;
+                }
+
+                $lineStart = $newlinePosition + 1;
             }
 
-            $process = substr($buffer, 0, $lastNewlinePosition + 1);
-            $buffer = substr($buffer, $lastNewlinePosition + 1);
-
-            if (preg_match_all('~https://stitcher\.io([^,\n]+),(\d{4}-\d{2}-\d{2})T~', $process, $matches, PREG_SET_ORDER) !== 0) {
-                foreach ($matches as $match) {
-                    $path = $match[1];
-                    $date = $match[2];
-
-                    if (isset($dateToId[$date])) {
-                        $dateId = $dateToId[$date];
-                    } else {
-                        $dateId = count($idToDate);
-                        $dateToId[$date] = $dateId;
-                        $idToDate[$dateId] = $date;
-                    }
-
-                    if (isset($visits[$path][$dateId])) {
-                        ++$visits[$path][$dateId];
-                    } else {
-                        $visits[$path][$dateId] = 1;
-                    }
-                }
+            if ($lineStart !== 0) {
+                $buffer = substr($buffer, $lineStart);
             }
         }
 
