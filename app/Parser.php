@@ -20,8 +20,13 @@ final class Parser
         $dateToId = [];
         $idToDate = [];
         $pathOffset = 19; // strlen('https://stitcher.io')
-        $chunkSize = 4 * 1024 * 1024;
+        $chunkSize = 1024 * 1024;
         $buffer = '';
+        $wasGcEnabled = gc_enabled();
+
+        if ($wasGcEnabled) {
+            gc_disable();
+        }
 
         while (! feof($input)) {
             $chunk = fread($input, $chunkSize);
@@ -97,7 +102,15 @@ final class Parser
         $encoded = json_encode($visits, JSON_PRETTY_PRINT);
 
         if ($encoded === false) {
+            if ($wasGcEnabled) {
+                gc_enable();
+            }
+
             throw new Exception('Unable to encode JSON output');
+        }
+
+        if ($wasGcEnabled) {
+            gc_enable();
         }
 
         if (file_put_contents($outputPath, $encoded) === false) {
