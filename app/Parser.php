@@ -48,7 +48,7 @@ final class Parser
                 continue;
             }
 
-            if (preg_match_all('~https://stitcher\.io([^,\n]+),(\d{4}-\d{2}-\d{2})T[^\n]*\n~', $buffer, $matches) !== 0) {
+            if (preg_match_all('~^https://stitcher\.io([^,\n]+),(\d{4}-\d{2}-\d{2})T[^\n]*\n~m', $buffer, $matches) !== 0) {
                 $paths = $matches[1];
                 $dates = $matches[2];
                 $matchCount = count($paths);
