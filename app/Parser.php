@@ -16,7 +16,9 @@ final class Parser
 
         stream_set_read_buffer($input, 8 * 1024 * 1024);
 
-        $visits = [];
+        $pathToId = [];
+        $idToPath = [];
+        $visitsById = [];
         $dateToId = [];
         $idToDate = [];
         $pathOffset = 19; // strlen('https://stitcher.io')
@@ -47,6 +49,15 @@ final class Parser
             foreach ($lines as $line) {
                 $path = substr($line, $pathOffset, -26);
                 $date = substr($line, -25, 10);
+
+                if (isset($pathToId[$path])) {
+                    $pathId = $pathToId[$path];
+                } else {
+                    $pathId = count($idToPath);
+                    $pathToId[$path] = $pathId;
+                    $idToPath[$pathId] = $path;
+                }
+
                 if (isset($dateToId[$date])) {
                     $dateId = $dateToId[$date];
                 } else {
@@ -55,10 +66,10 @@ final class Parser
                     $idToDate[$dateId] = $date;
                 }
 
-                if (isset($visits[$path][$dateId])) {
-                    ++$visits[$path][$dateId];
+                if (isset($visitsById[$pathId][$dateId])) {
+                    ++$visitsById[$pathId][$dateId];
                 } else {
-                    $visits[$path][$dateId] = 1;
+                    $visitsById[$pathId][$dateId] = 1;
                 }
             }
         }
@@ -66,6 +77,14 @@ final class Parser
         if ($buffer !== '') {
             $path = substr($buffer, $pathOffset, -26);
             $date = substr($buffer, -25, 10);
+            if (isset($pathToId[$path])) {
+                $pathId = $pathToId[$path];
+            } else {
+                $pathId = count($idToPath);
+                $pathToId[$path] = $pathId;
+                $idToPath[$pathId] = $path;
+            }
+
             if (isset($dateToId[$date])) {
                 $dateId = $dateToId[$date];
             } else {
@@ -74,10 +93,10 @@ final class Parser
                 $idToDate[$dateId] = $date;
             }
 
-            if (isset($visits[$path][$dateId])) {
-                ++$visits[$path][$dateId];
+            if (isset($visitsById[$pathId][$dateId])) {
+                ++$visitsById[$pathId][$dateId];
             } else {
-                $visits[$path][$dateId] = 1;
+                $visitsById[$pathId][$dateId] = 1;
             }
         }
 
@@ -85,7 +104,10 @@ final class Parser
 
         asort($idToDate, SORT_STRING);
 
-        foreach ($visits as &$countsByDateId) {
+        $visits = [];
+
+        foreach ($idToPath as $pathId => $path) {
+            $countsByDateId = $visitsById[$pathId] ?? [];
             $dates = [];
 
             foreach ($idToDate as $dateId => $date) {
@@ -94,10 +116,8 @@ final class Parser
                 }
             }
 
-            $countsByDateId = $dates;
+            $visits[$path] = $dates;
         }
-
-        unset($countsByDateId);
 
         $encoded = json_encode($visits, JSON_PRETTY_PRINT);
 
