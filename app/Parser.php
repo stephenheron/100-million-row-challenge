@@ -63,12 +63,12 @@ final class Parser
                         $idToDate[$dateId] = $date;
                     }
 
-                    $path = $paths[$i];
+                    $inner = &$visits[$paths[$i]];
 
-                    if (isset($visits[$path][$dateId])) {
-                        ++$visits[$path][$dateId];
+                    if (isset($inner[$dateId])) {
+                        ++$inner[$dateId];
                     } else {
-                        $visits[$path][$dateId] = 1;
+                        $inner[$dateId] = 1;
                     }
                 }
             }
