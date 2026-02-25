@@ -16,7 +16,9 @@ final class Parser
 
         stream_set_read_buffer($input, 1024 * 1024);
 
-        $visits = [];
+        $pathToId = [];
+        $paths = [];
+        $counts = [];
         $hostPrefixLength = 19; // https://stitcher.io
 
         while (($line = fgets($input)) !== false) {
@@ -24,21 +26,36 @@ final class Parser
             $path = substr($line, $hostPrefixLength, $commaPosition - $hostPrefixLength);
             $date = substr($line, $commaPosition + 1, 10);
 
-            if (isset($visits[$path][$date])) {
-                ++$visits[$path][$date];
+            if (isset($pathToId[$path])) {
+                $pathId = $pathToId[$path];
+            } else {
+                $pathId = count($paths);
+                $pathToId[$path] = $pathId;
+                $paths[$pathId] = $path;
+                $counts[$pathId] = [];
+            }
+
+            if (isset($counts[$pathId][$date])) {
+                ++$counts[$pathId][$date];
                 continue;
             }
 
-            $visits[$path][$date] = 1;
+            $counts[$pathId][$date] = 1;
         }
 
         fclose($input);
 
-        foreach ($visits as &$dates) {
+        foreach ($counts as &$dates) {
             ksort($dates);
         }
 
         unset($dates);
+
+        $visits = [];
+
+        foreach ($paths as $pathId => $path) {
+            $visits[$path] = $counts[$pathId];
+        }
 
         $encoded = json_encode($visits, JSON_PRETTY_PRINT);
 
