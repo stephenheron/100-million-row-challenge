@@ -21,7 +21,7 @@ final class Parser
         $idToDate = [];
         $nextDateId = 0;
         $pathOffset = 19; // strlen('https://stitcher.io')
-        $chunkSize = 2 * 1024 * 1024;
+        $chunkSize = 512 * 1024;
         $buffer = '';
         $wasGcEnabled = gc_enabled();
 
