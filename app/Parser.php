@@ -20,7 +20,7 @@ final class Parser
         $dateToId = [];
         $idToDate = [];
         $pathOffset = 19; // strlen('https://stitcher.io')
-        $chunkSize = 1024 * 1024;
+        $chunkSize = 4 * 1024 * 1024;
         $buffer = '';
 
         while (! feof($input)) {
