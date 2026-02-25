@@ -41,14 +41,12 @@ final class Parser
             }
 
             $buffer .= $chunk;
-            $lineStart = 0;
+            $lines = explode("\n", $buffer);
+            $buffer = array_pop($lines);
 
-            while (($newlinePosition = strpos($buffer, "\n", $lineStart)) !== false) {
-                $dateStart = $newlinePosition - 25;
-                $pathStart = $lineStart + $pathOffset;
-                $path = substr($buffer, $pathStart, $dateStart - $pathStart - 1);
-                $date = substr($buffer, $dateStart, 10);
-
+            foreach ($lines as $line) {
+                $path = substr($line, $pathOffset, -26);
+                $date = substr($line, -25, 10);
                 if (isset($dateToId[$date])) {
                     $dateId = $dateToId[$date];
                 } else {
@@ -62,12 +60,6 @@ final class Parser
                 } else {
                     $visits[$path][$dateId] = 1;
                 }
-
-                $lineStart = $newlinePosition + 1;
-            }
-
-            if ($lineStart !== 0) {
-                $buffer = substr($buffer, $lineStart);
             }
         }
 
