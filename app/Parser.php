@@ -41,24 +41,33 @@ final class Parser
             }
 
             $buffer .= $chunk;
-            $lines = explode("\n", $buffer);
-            $buffer = array_pop($lines);
+            $lastNewlinePosition = strrpos($buffer, "\n");
 
-            foreach ($lines as $line) {
-                $path = substr($line, $pathOffset, -26);
-                $date = substr($line, -25, 10);
-                if (isset($dateToId[$date])) {
-                    $dateId = $dateToId[$date];
-                } else {
-                    $dateId = count($idToDate);
-                    $dateToId[$date] = $dateId;
-                    $idToDate[$dateId] = $date;
-                }
+            if ($lastNewlinePosition === false) {
+                continue;
+            }
 
-                if (isset($visits[$path][$dateId])) {
-                    ++$visits[$path][$dateId];
-                } else {
-                    $visits[$path][$dateId] = 1;
+            $process = substr($buffer, 0, $lastNewlinePosition + 1);
+            $buffer = substr($buffer, $lastNewlinePosition + 1);
+
+            if (preg_match_all('~https://stitcher\.io([^,\n]+),(\d{4}-\d{2}-\d{2})T~', $process, $matches, PREG_SET_ORDER) !== 0) {
+                foreach ($matches as $match) {
+                    $path = $match[1];
+                    $date = $match[2];
+
+                    if (isset($dateToId[$date])) {
+                        $dateId = $dateToId[$date];
+                    } else {
+                        $dateId = count($idToDate);
+                        $dateToId[$date] = $dateId;
+                        $idToDate[$dateId] = $date;
+                    }
+
+                    if (isset($visits[$path][$dateId])) {
+                        ++$visits[$path][$dateId];
+                    } else {
+                        $visits[$path][$dateId] = 1;
+                    }
                 }
             }
         }
