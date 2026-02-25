@@ -48,10 +48,7 @@ final class Parser
                 continue;
             }
 
-            $process = substr($buffer, 0, $lastNewlinePosition + 1);
-            $buffer = substr($buffer, $lastNewlinePosition + 1);
-
-            if (preg_match_all('~https://stitcher\.io([^,\n]+),(\d{4}-\d{2}-\d{2})T~', $process, $matches) !== 0) {
+            if (preg_match_all('~https://stitcher\.io([^,\n]+),(\d{4}-\d{2}-\d{2})T[^\n]*\n~', $buffer, $matches) !== 0) {
                 $paths = $matches[1];
                 $dates = $matches[2];
                 $matchCount = count($paths);
@@ -76,6 +73,8 @@ final class Parser
                     }
                 }
             }
+
+            $buffer = substr($buffer, $lastNewlinePosition + 1);
         }
 
         if ($buffer !== '') {
