@@ -48,23 +48,22 @@ final class Parser
                 continue;
             }
 
-            if (preg_match_all('~https://stitcher\.io\K([^,\n]++),([0-9]{4}-[0-9]{2}-[0-9]{2})~', $buffer, $matches) !== 0) {
+            if (preg_match_all('~https://stitcher\.io\K([^,\n]++),([0-9]{4}-[0-9]{2}-[0-9]{2})T[^\n]*+\n~', $buffer, $matches) !== 0) {
                 $paths = $matches[1];
                 $dates = $matches[2];
                 $matchCount = count($paths);
 
                 for ($i = 0; $i < $matchCount; ++$i) {
-                    $path = $paths[$i];
                     $date = $dates[$i];
 
-                    if (isset($dateToId[$date])) {
-                        $dateId = $dateToId[$date];
-                    } else {
-                        $dateId = $nextDateId;
-                        ++$nextDateId;
+                    $dateId = $dateToId[$date] ?? -1;
+                    if ($dateId < 0) {
+                        $dateId = $nextDateId++;
                         $dateToId[$date] = $dateId;
                         $idToDate[$dateId] = $date;
                     }
+
+                    $path = $paths[$i];
 
                     if (isset($visits[$path][$dateId])) {
                         ++$visits[$path][$dateId];
@@ -80,11 +79,10 @@ final class Parser
         if ($buffer !== '') {
             $path = substr($buffer, $pathOffset, -26);
             $date = substr($buffer, -25, 10);
-            if (isset($dateToId[$date])) {
-                $dateId = $dateToId[$date];
-            } else {
-                $dateId = $nextDateId;
-                ++$nextDateId;
+
+            $dateId = $dateToId[$date] ?? -1;
+            if ($dateId < 0) {
+                $dateId = $nextDateId++;
                 $dateToId[$date] = $dateId;
                 $idToDate[$dateId] = $date;
             }
