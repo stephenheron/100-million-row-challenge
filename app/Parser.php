@@ -19,7 +19,6 @@ final class Parser
         $visits = [];
         $dateToId = [];
         $idToDate = [];
-        $nextDateId = 0;
         $pathOffset = 19; // strlen('https://stitcher.io')
         $chunkSize = 1024 * 1024;
         $buffer = '';
@@ -48,12 +47,10 @@ final class Parser
             foreach ($lines as $line) {
                 $path = substr($line, $pathOffset, -26);
                 $date = substr($line, -25, 10);
-
                 if (isset($dateToId[$date])) {
                     $dateId = $dateToId[$date];
                 } else {
-                    $dateId = $nextDateId;
-                    ++$nextDateId;
+                    $dateId = count($idToDate);
                     $dateToId[$date] = $dateId;
                     $idToDate[$dateId] = $date;
                 }
@@ -69,12 +66,10 @@ final class Parser
         if ($buffer !== '') {
             $path = substr($buffer, $pathOffset, -26);
             $date = substr($buffer, -25, 10);
-
             if (isset($dateToId[$date])) {
                 $dateId = $dateToId[$date];
             } else {
-                $dateId = $nextDateId;
-                ++$nextDateId;
+                $dateId = count($idToDate);
                 $dateToId[$date] = $dateId;
                 $idToDate[$dateId] = $date;
             }
