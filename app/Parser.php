@@ -48,10 +48,14 @@ final class Parser
                 continue;
             }
 
-            if (preg_match_all('~https://stitcher\.io([^,\n]+),(\d{4}-\d{2}-\d{2})T[^\n]*\n~', $buffer, $matches, PREG_SET_ORDER) !== 0) {
-                foreach ($matches as $match) {
-                    $path = $match[1];
-                    $date = $match[2];
+            if (preg_match_all('~https://stitcher\.io([^,\n]+),(\d{4}-\d{2}-\d{2})T[^\n]*\n~', $buffer, $matches) !== 0) {
+                $paths = $matches[1];
+                $dates = $matches[2];
+                $matchCount = count($paths);
+
+                for ($i = 0; $i < $matchCount; ++$i) {
+                    $path = $paths[$i];
+                    $date = $dates[$i];
 
                     if (isset($dateToId[$date])) {
                         $dateId = $dateToId[$date];
