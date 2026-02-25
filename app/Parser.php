@@ -14,21 +14,61 @@ final class Parser
             throw new Exception("Unable to open input file: {$inputPath}");
         }
 
-        stream_set_read_buffer($input, 1024 * 1024);
+        stream_set_read_buffer($input, 8 * 1024 * 1024);
 
         $visits = [];
         $pathOffset = 19; // strlen('https://stitcher.io')
+        $chunkSize = 1024 * 1024;
+        $buffer = '';
 
-        while (($line = fgets($input)) !== false) {
-            $path = substr($line, $pathOffset, -27);
-            $date = substr($line, -26, 10);
+        while (! feof($input)) {
+            $chunk = fread($input, $chunkSize);
 
-            if (isset($visits[$path][$date])) {
-                ++$visits[$path][$date];
-                continue;
+            if ($chunk === false) {
+                fclose($input);
+                throw new Exception("Unable to read input file: {$inputPath}");
             }
 
-            $visits[$path][$date] = 1;
+            if ($chunk === '') {
+                break;
+            }
+
+            $buffer .= $chunk;
+            $start = 0;
+
+            while (($newlinePosition = strpos($buffer, "\n", $start)) !== false) {
+                $dateStart = $newlinePosition - 25;
+                $path = substr($buffer, $start + $pathOffset, $dateStart - $start - $pathOffset - 1);
+                $date = substr($buffer, $dateStart, 10);
+
+                if (isset($visits[$path][$date])) {
+                    ++$visits[$path][$date];
+                } else {
+                    $visits[$path][$date] = 1;
+                }
+
+                $start = $newlinePosition + 1;
+            }
+
+            if ($start !== 0) {
+                $buffer = substr($buffer, $start);
+            }
+        }
+
+        if ($buffer !== '') {
+            $bufferLength = strlen($buffer);
+
+            if ($bufferLength > 26) {
+                $dateStart = $bufferLength - 25;
+                $path = substr($buffer, $pathOffset, $dateStart - $pathOffset - 1);
+                $date = substr($buffer, $dateStart, 10);
+
+                if (isset($visits[$path][$date])) {
+                    ++$visits[$path][$date];
+                } else {
+                    $visits[$path][$date] = 1;
+                }
+            }
         }
 
         fclose($input);
