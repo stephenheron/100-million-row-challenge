@@ -21,7 +21,7 @@ final class Parser
         $idToDate = [];
         $nextDateId = 0;
         $pathOffset = 19; // strlen('https://stitcher.io')
-        $chunkSize = 512 * 1024;
+        $chunkSize = 1024 * 1024;
         $buffer = '';
         $wasGcEnabled = gc_enabled();
 
@@ -48,14 +48,10 @@ final class Parser
                 continue;
             }
 
-            if (preg_match_all('~^https://stitcher\.io([^,\n]+),(\d{4}-\d{2}-\d{2})T[^\n]*\n~m', $buffer, $matches) !== 0) {
-                $paths = $matches[1];
-                $dates = $matches[2];
-                $matchCount = count($paths);
-
-                for ($i = 0; $i < $matchCount; ++$i) {
-                    $path = $paths[$i];
-                    $date = $dates[$i];
+            if (preg_match_all('~https://stitcher\.io([^,\n]+),(\d{4}-\d{2}-\d{2})T[^\n]*\n~', $buffer, $matches, PREG_SET_ORDER) !== 0) {
+                foreach ($matches as $match) {
+                    $path = $match[1];
+                    $date = $match[2];
 
                     if (isset($dateToId[$date])) {
                         $dateId = $dateToId[$date];
