@@ -67,7 +67,6 @@ final class BenchmarkRunCommand
         $this->info('Starting run…');
 
         $prs = $this->fetchOpenPRs();
-
         $prsToProcess = $this->filterPRs($prs, $pr);
 
         if ($prsToProcess === []) {
@@ -91,7 +90,6 @@ final class BenchmarkRunCommand
                 // Always remove the verified label
                 $this->githubRemoveLabel($prNumber, 'verified');
             }
-
         }
 
         $this->success('Done');
@@ -134,19 +132,6 @@ final class BenchmarkRunCommand
         $filtered = [];
 
         foreach ($prs as $pr) {
-            if ($filter !== null) {
-                if ($pr['number'] !== $filter) {
-                    continue;
-                } else {
-                    $filtered[] = $pr;
-                    return $filtered;
-                }
-            }
-
-            if ($pr['draft'] ?? false) {
-                continue;
-            }
-
             $hasVerifiedLabel = false;
 
             foreach ($pr['labels'] ?? [] as $label) {
@@ -160,9 +145,16 @@ final class BenchmarkRunCommand
                 continue;
             }
 
-            $latestCommitSha = $pr['head']['sha'] ?? null;
+            if ($filter !== null) {
+                if ($pr['number'] !== $filter) {
+                    continue;
+                } else {
+                    $filtered[] = $pr;
+                    return $filtered;
+                }
+            }
 
-            if (! $latestCommitSha || $this->hasBeenProcessed($pr['number'], $latestCommitSha)) {
+            if ($pr['draft'] ?? false) {
                 continue;
             }
 
@@ -170,37 +162,6 @@ final class BenchmarkRunCommand
         }
 
         return $filtered;
-    }
-
-    private function hasBeenProcessed(int $prNumber, string $commitSha): bool
-    {
-        $trackingFile = __DIR__ . '/../../.benchmark/processed.json';
-
-        if (! file_exists($trackingFile)) {
-            return false;
-        }
-
-        $processed = json_decode(file_get_contents($trackingFile), true) ?? [];
-
-        return isset($processed[$prNumber]) && $processed[$prNumber] === $commitSha;
-    }
-
-    private function markAsProcessed(int $prNumber, string $commitSha): void
-    {
-        $trackingFile = __DIR__ . '/../../.benchmark/processed.json';
-        $trackingDir = dirname($trackingFile);
-
-        if (! is_dir($trackingDir)) {
-            mkdir($trackingDir, 0755, true);
-        }
-
-        $processed = [];
-        if (file_exists($trackingFile)) {
-            $processed = json_decode(file_get_contents($trackingFile), true) ?? [];
-        }
-
-        $processed[$prNumber] = $commitSha;
-        file_put_contents($trackingFile, json_encode($processed, JSON_PRETTY_PRINT));
     }
 
     private function githubComment(int $prNumber, string $message): void
@@ -339,9 +300,6 @@ final class BenchmarkRunCommand
         // Post results
         $this->prSuccess($prNumber, "Benchmark complete: {$meanTime}s");
         $this->githubComment($prNumber, "Benchmarking complete! Mean execution time: **{$meanTime}s**");
-
-        // Mark as processed
-        $this->markAsProcessed($prNumber, $commitSha);
 
         // Clean up
         exec("rm -rf " . escapeshellarg($benchmarkDir));
