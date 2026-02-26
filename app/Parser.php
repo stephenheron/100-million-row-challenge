@@ -7,7 +7,7 @@ use Exception;
 final class Parser
 {
     private const NUM_WORKERS = 2;
-    private const SHM_SIZE = 16 * 1024 * 1024; // 16MB per worker
+    private const SHM_SIZE = 32 * 1024 * 1024; // 32MB per worker
     private const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB read buffer
 
     public function parse(string $inputPath, string $outputPath): void
@@ -52,20 +52,20 @@ final class Parser
             }
 
             if ($pid === 0) {
-                // CHILD: process chunk, write tab-delimited text to shared memory
+                // CHILD: process chunk, write directly to shared memory
                 // Format: path\tdate\tcount\n per entry, 4-byte length prefix
                 $result = $this->processChunk($inputPath, $boundaries[$i], $boundaries[$i + 1]);
-                $parts = [];
+                $offset = 4;
 
                 foreach ($result as $path => $dates) {
                     foreach ($dates as $date => $count) {
-                        $parts[] = "$path\t$date\t$count";
+                        $line = "$path\t$date\t$count\n";
+                        shmop_write($shmSegments[$i], $line, $offset);
+                        $offset += strlen($line);
                     }
                 }
 
-                $text = implode("\n", $parts);
-                shmop_write($shmSegments[$i], pack('V', strlen($text)), 0);
-                shmop_write($shmSegments[$i], $text, 4);
+                shmop_write($shmSegments[$i], pack('V', $offset - 4), 0);
                 exit(0);
             }
 
@@ -86,6 +86,10 @@ final class Parser
             shmop_delete($shm);
 
             foreach (explode("\n", $data) as $line) {
+                if ($line === '') {
+                    continue;
+                }
+
                 [$path, $date, $count] = explode("\t", $line, 3);
 
                 if (isset($visits[$path][$date])) {
