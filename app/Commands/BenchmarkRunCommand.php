@@ -375,14 +375,6 @@ final class BenchmarkRunCommand
             return;
         }
 
-        $repoDir = __DIR__ . '/../..';
-        exec("cd " . escapeshellarg($repoDir) . " && git pull", $output, $returnCode);
-
-        if ($returnCode !== 0) {
-            $this->prError($prNumber, "Failed to pull from main");
-            return;
-        }
-
         if (! $this->persist) {
             $this->prWarning($prNumber, "Skipping leaderboard update as --persist is not enabled.");
             return;
@@ -430,7 +422,9 @@ final class BenchmarkRunCommand
         file_put_contents($path, $leaderboard);
 
         // Commit and push the leaderboard
-        exec("cd " . escapeshellarg($repoDir) . " && git add leaderboard.csv", $output, $returnCode);
+        $repoDir = __DIR__ . '/../..';
+
+        exec("cd " . escapeshellarg($repoDir) . " && git pull origin main && git add leaderboard.csv", $output, $returnCode);
 
         if ($returnCode !== 0) {
             $this->prWarning($prNumber, "Leaderboard not updated");
