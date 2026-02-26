@@ -208,20 +208,26 @@ final class Parser
                 continue;
             }
 
-            if (preg_match_all('~https://stitcher\.io\K([^,\n]++),([0-9]{4}-[0-9]{2}-[0-9]{2})T[^\n]*+\n~', $buffer, $matches) !== 0) {
-                $paths = $matches[1];
-                $dates = $matches[2];
-                $matchCount = count($paths);
+            $pos = 0;
 
-                for ($i = 0; $i < $matchCount; ++$i) {
-                    $inner = &$visits[$paths[$i]];
+            while ($pos < $lastNewlinePosition) {
+                $commaPos = strpos($buffer, ',', $pos + 19);
 
-                    if (isset($inner[$dates[$i]])) {
-                        ++$inner[$dates[$i]];
-                    } else {
-                        $inner[$dates[$i]] = 1;
-                    }
+                if ($commaPos === false) {
+                    break;
                 }
+
+                $path = substr($buffer, $pos + 19, $commaPos - $pos - 19);
+                $date = substr($buffer, $commaPos + 1, 10);
+                $inner = &$visits[$path];
+
+                if (isset($inner[$date])) {
+                    ++$inner[$date];
+                } else {
+                    $inner[$date] = 1;
+                }
+
+                $pos = $commaPos + 27;
             }
 
             $buffer = substr($buffer, $lastNewlinePosition + 1);
@@ -229,13 +235,17 @@ final class Parser
 
         // Handle remaining buffer (last partial line in this chunk)
         if ($buffer !== '' && $bytesRemaining <= 0) {
-            if (preg_match('~https://stitcher\.io\K([^,\n]++),([0-9]{4}-[0-9]{2}-[0-9]{2})T~', $buffer, $match)) {
-                $inner = &$visits[$match[1]];
+            $commaPos = strpos($buffer, ',', 19);
 
-                if (isset($inner[$match[2]])) {
-                    ++$inner[$match[2]];
+            if ($commaPos !== false) {
+                $path = substr($buffer, 19, $commaPos - 19);
+                $date = substr($buffer, $commaPos + 1, 10);
+                $inner = &$visits[$path];
+
+                if (isset($inner[$date])) {
+                    ++$inner[$date];
                 } else {
-                    $inner[$match[2]] = 1;
+                    $inner[$date] = 1;
                 }
             }
         }
