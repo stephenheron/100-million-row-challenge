@@ -278,7 +278,7 @@ final class BenchmarkRunCommand
         $resultFile = __DIR__ . '/../../.benchmark/result-' . $prNumber . '.json';
         $actualPath = __DIR__ . '/../../data/real-data-actual.json';
         $parseCommand = sprintf(
-            './tempest data:parse --input-path="%s" --output-path="%s"',
+            'php -dmax_execution_time=300 tempest data:parse --input-path="%s" --output-path="%s"',
             escapeshellarg(__DIR__ . '/../../data/real-data.csv'),
             escapeshellarg($actualPath),
         );
