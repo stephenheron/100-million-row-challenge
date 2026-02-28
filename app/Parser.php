@@ -7,11 +7,13 @@ use Exception;
 final class Parser
 {
     private const NUM_WORKERS = 8;
-    private const SHM_SIZE = 32 * 1024 * 1024; // 32MB per worker
+    private const SHM_SIZE = 64 * 1024 * 1024; // 64MB per worker
     private const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB read buffer
 
     public function parse(string $inputPath, string $outputPath): void
     {
+        ini_set('memory_limit', '2G');
+
         $wasGcEnabled = gc_enabled();
 
         if ($wasGcEnabled) {
@@ -76,8 +78,8 @@ final class Parser
             pcntl_waitpid($pid, $status);
         }
 
-        // Merge results into global int-key arrays for speed
-        $globalVisits = [];
+        // Phase 1: Read all workers' data and build global ID mappings
+        $workerData = [];
         $globalPathId = [];
         $globalPathStr = [];
         $nextGlobalPathId = 0;
@@ -93,7 +95,6 @@ final class Parser
                 ? igbinary_unserialize($data)
                 : unserialize($data);
 
-            // Map this worker's local IDs to global IDs
             $pathMap = [];
 
             foreach ($pathStrById as $localId => $str) {
@@ -122,43 +123,46 @@ final class Parser
                 $dateMap[$localId] = $gid;
             }
 
-            // Merge using global int IDs only
+            $workerData[] = [$result, $pathMap, $dateMap];
+        }
+
+        // Phase 2: Merge into flat pre-allocated array (no isset checks needed)
+        $numDates = $nextGlobalDateId;
+        $flat = array_fill(0, $nextGlobalPathId * $numDates, 0);
+
+        foreach ($workerData as [$result, $pathMap, $dateMap]) {
             foreach ($result as $localPathId => $dates) {
-                $gp = $pathMap[$localPathId];
-                $inner = &$globalVisits[$gp];
+                $base = $pathMap[$localPathId] * $numDates;
 
                 foreach ($dates as $localDateId => $count) {
-                    $gd = $dateMap[$localDateId];
-
-                    if (isset($inner[$gd])) {
-                        $inner[$gd] += $count;
-                    } else {
-                        $inner[$gd] = $count;
-                    }
+                    $flat[$base + $dateMap[$localDateId]] += $count;
                 }
             }
         }
 
-        // Sort global date IDs by date string
-        $sortedDateGids = array_keys($globalDateStr);
+        unset($workerData);
+
+        // Phase 3: Sort dates and build final array for json_encode
+        $sortedDateGids = range(0, $numDates - 1);
         usort($sortedDateGids, function ($a, $b) use ($globalDateStr) {
             return $globalDateStr[$a] <=> $globalDateStr[$b];
         });
 
-        // Build final string-keyed array for json_encode
         $visits = [];
 
-        foreach ($globalVisits as $gPathId => $dates) {
-            $path = $globalPathStr[$gPathId];
+        for ($gPathId = 0; $gPathId < $nextGlobalPathId; ++$gPathId) {
             $sorted = [];
+            $base = $gPathId * $numDates;
 
             foreach ($sortedDateGids as $gDateId) {
-                if (isset($dates[$gDateId])) {
-                    $sorted[$globalDateStr[$gDateId]] = $dates[$gDateId];
+                $count = $flat[$base + $gDateId];
+
+                if ($count > 0) {
+                    $sorted[$globalDateStr[$gDateId]] = $count;
                 }
             }
 
-            $visits[$path] = $sorted;
+            $visits[$globalPathStr[$gPathId]] = $sorted;
         }
 
         if ($wasGcEnabled) {
@@ -201,7 +205,12 @@ final class Parser
 
     private function processChunk(string $inputPath, int $startOffset, int $endOffset): array
     {
-        $buffer = file_get_contents($inputPath, false, null, $startOffset, $endOffset - $startOffset);
+        $input = fopen($inputPath, 'rb');
+        stream_set_read_buffer($input, 8 * 1024 * 1024);
+
+        if ($startOffset > 0) {
+            fseek($input, $startOffset);
+        }
 
         $visits = [];
         $pathIdByStr = [];
@@ -210,53 +219,70 @@ final class Parser
         $dateIdByStr = [];
         $dateStrById = [];
         $nextDateId = 0;
+        $buffer = '';
+        $bytesRemaining = $endOffset - $startOffset;
 
-        $lastNewlinePosition = strrpos($buffer, "\n");
+        while ($bytesRemaining > 0) {
+            $readSize = min(self::CHUNK_SIZE, $bytesRemaining);
+            $chunk = fread($input, $readSize);
 
-        if ($lastNewlinePosition === false) {
-            return [$visits, $pathStrById, $dateStrById];
-        }
-
-        $pos = 0;
-
-        while ($pos < $lastNewlinePosition) {
-            $pathStart = $pos + 19;
-            $commaPos = strpos($buffer, ',', $pathStart);
-
-            if ($commaPos === false) {
+            if ($chunk === false || $chunk === '') {
                 break;
             }
 
-            $path = substr($buffer, $pathStart, $commaPos - $pathStart);
-            $pathId = $pathIdByStr[$path] ?? null;
+            $bytesRemaining -= strlen($chunk);
+            $buffer .= $chunk;
+            $lastNewlinePosition = strrpos($buffer, "\n");
 
-            if ($pathId === null) {
-                $pathId = $nextPathId;
-                $pathIdByStr[$path] = $pathId;
-                $pathStrById[$pathId] = $path;
-                ++$nextPathId;
+            if ($lastNewlinePosition === false) {
+                continue;
             }
 
-            $date = substr($buffer, $commaPos + 1, 10);
-            $dateId = $dateIdByStr[$date] ?? null;
+            $pos = 0;
 
-            if ($dateId === null) {
-                $dateId = $nextDateId;
-                $dateIdByStr[$date] = $dateId;
-                $dateStrById[$dateId] = $date;
-                ++$nextDateId;
+            while ($pos < $lastNewlinePosition) {
+                $pathStart = $pos + 19;
+                $commaPos = strpos($buffer, ',', $pathStart);
+
+                if ($commaPos === false) {
+                    break;
+                }
+
+                $path = substr($buffer, $pathStart, $commaPos - $pathStart);
+                $pathId = $pathIdByStr[$path] ?? null;
+
+                if ($pathId === null) {
+                    $pathId = $nextPathId;
+                    $pathIdByStr[$path] = $pathId;
+                    $pathStrById[$pathId] = $path;
+                    ++$nextPathId;
+                }
+
+                $date = substr($buffer, $commaPos + 1, 10);
+                $dateId = $dateIdByStr[$date] ?? null;
+
+                if ($dateId === null) {
+                    $dateId = $nextDateId;
+                    $dateIdByStr[$date] = $dateId;
+                    $dateStrById[$dateId] = $date;
+                    ++$nextDateId;
+                }
+
+                $inner = &$visits[$pathId];
+
+                if (isset($inner[$dateId])) {
+                    ++$inner[$dateId];
+                } else {
+                    $inner[$dateId] = 1;
+                }
+
+                $pos = $commaPos + 27;
             }
 
-            $inner = &$visits[$pathId];
-
-            if (isset($inner[$dateId])) {
-                ++$inner[$dateId];
-            } else {
-                $inner[$dateId] = 1;
-            }
-
-            $pos = $commaPos + 27;
+            $buffer = substr($buffer, $lastNewlinePosition + 1);
         }
+
+        fclose($input);
 
         return [$visits, $pathStrById, $dateStrById];
     }
