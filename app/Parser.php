@@ -54,11 +54,13 @@ final class Parser
             if ($pid === 0) {
                 // CHILD: process chunk, write directly to shared memory
                 // Format: path\tdate\tcount\n per entry, 4-byte length prefix
-                [$result, $dateStrById] = $this->processChunk($inputPath, $boundaries[$i], $boundaries[$i + 1]);
+                [$result, $pathStrById, $dateStrById] = $this->processChunk($inputPath, $boundaries[$i], $boundaries[$i + 1]);
                 $offset = 4;
                 $writeBuffer = '';
 
-                foreach ($result as $path => $dates) {
+                foreach ($result as $pathId => $dates) {
+                    $path = $pathStrById[$pathId];
+
                     foreach ($dates as $dateId => $count) {
                         $date = $dateStrById[$dateId];
                         $writeBuffer .= $path . "\t" . $date . "\t" . $count . "\n";
@@ -203,6 +205,9 @@ final class Parser
         }
 
         $visits = [];
+        $pathIdByStr = [];
+        $pathStrById = [];
+        $nextPathId = 0;
         $dateIdByStr = [];
         $dateStrById = [];
         $nextDateId = 0;
@@ -236,6 +241,15 @@ final class Parser
                 }
 
                 $path = substr($buffer, $pos + 19, $commaPos - $pos - 19);
+                $pathId = $pathIdByStr[$path] ?? null;
+
+                if ($pathId === null) {
+                    $pathId = $nextPathId;
+                    $pathIdByStr[$path] = $pathId;
+                    $pathStrById[$pathId] = $path;
+                    ++$nextPathId;
+                }
+
                 $date = substr($buffer, $commaPos + 1, 10);
                 $dateId = $dateIdByStr[$date] ?? null;
 
@@ -246,7 +260,7 @@ final class Parser
                     ++$nextDateId;
                 }
 
-                $inner = &$visits[$path];
+                $inner = &$visits[$pathId];
 
                 if (isset($inner[$dateId])) {
                     ++$inner[$dateId];
@@ -266,6 +280,15 @@ final class Parser
 
             if ($commaPos !== false) {
                 $path = substr($buffer, 19, $commaPos - 19);
+                $pathId = $pathIdByStr[$path] ?? null;
+
+                if ($pathId === null) {
+                    $pathId = $nextPathId;
+                    $pathIdByStr[$path] = $pathId;
+                    $pathStrById[$pathId] = $path;
+                    ++$nextPathId;
+                }
+
                 $date = substr($buffer, $commaPos + 1, 10);
                 $dateId = $dateIdByStr[$date] ?? null;
 
@@ -276,7 +299,7 @@ final class Parser
                     ++$nextDateId;
                 }
 
-                $inner = &$visits[$path];
+                $inner = &$visits[$pathId];
 
                 if (isset($inner[$dateId])) {
                     ++$inner[$dateId];
@@ -288,6 +311,6 @@ final class Parser
 
         fclose($input);
 
-        return [$visits, $dateStrById];
+        return [$visits, $pathStrById, $dateStrById];
     }
 }
