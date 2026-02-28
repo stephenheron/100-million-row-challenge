@@ -31,7 +31,7 @@ final class Parser
         // Create socket pairs for IPC
         $socketPairs = [];
 
-        for ($i = 0; $i < self::NUM_WORKERS; ++$i) {
+        for ($i = 1; $i < self::NUM_WORKERS; ++$i) {
             $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
 
             if ($pair === false) {
@@ -44,7 +44,7 @@ final class Parser
         // Fork workers
         $pids = [];
 
-        for ($i = 0; $i < self::NUM_WORKERS; ++$i) {
+        for ($i = 1; $i < self::NUM_WORKERS; ++$i) {
             $pid = pcntl_fork();
 
             if ($pid === -1) {
@@ -79,10 +79,13 @@ final class Parser
             $pids[$i] = $pid;
         }
 
-        // Read results from all workers
+        // Parent processes the first chunk directly (avoids one IPC roundtrip)
+        [$parentResult, $parentPathStrById, $parentDateStrById] = $this->processChunk($inputPath, $boundaries[0], $boundaries[1]);
+
+        // Read results from child workers
         $payloads = [];
 
-        for ($i = 0; $i < self::NUM_WORKERS; ++$i) {
+        for ($i = 1; $i < self::NUM_WORKERS; ++$i) {
             $data = stream_get_contents($socketPairs[$i][0]);
             fclose($socketPairs[$i][0]);
             $payloads[$i] = $data;
@@ -101,9 +104,18 @@ final class Parser
         $globalDateStr = [];
         $nextGlobalDateId = 0;
 
-        foreach ($payloads as $data) {
-            [$result, $pathStrById, $dateStrById] = unserialize($data);
-
+        $ingestWorker = static function (
+            array $result,
+            array $pathStrById,
+            array $dateStrById,
+            array &$workerData,
+            array &$globalPathId,
+            array &$globalPathStr,
+            int &$nextGlobalPathId,
+            array &$globalDateId,
+            array &$globalDateStr,
+            int &$nextGlobalDateId
+        ): void {
             $pathMap = [];
 
             foreach ($pathStrById as $localId => $str) {
@@ -133,6 +145,35 @@ final class Parser
             }
 
             $workerData[] = [$result, $pathMap, $dateMap];
+        };
+
+        $ingestWorker(
+            $parentResult,
+            $parentPathStrById,
+            $parentDateStrById,
+            $workerData,
+            $globalPathId,
+            $globalPathStr,
+            $nextGlobalPathId,
+            $globalDateId,
+            $globalDateStr,
+            $nextGlobalDateId
+        );
+
+        foreach ($payloads as $data) {
+            [$result, $pathStrById, $dateStrById] = unserialize($data);
+            $ingestWorker(
+                $result,
+                $pathStrById,
+                $dateStrById,
+                $workerData,
+                $globalPathId,
+                $globalPathStr,
+                $nextGlobalPathId,
+                $globalDateId,
+                $globalDateStr,
+                $nextGlobalDateId
+            );
         }
 
         // Phase 2: Merge into flat pre-allocated array (no isset checks needed)
