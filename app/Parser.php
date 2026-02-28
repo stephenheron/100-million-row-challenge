@@ -7,8 +7,7 @@ use Exception;
 final class Parser
 {
     private const NUM_WORKERS = 8;
-    private const SHM_SIZE = 64 * 1024 * 1024; // 64MB per worker
-    private const CHUNK_SIZE = 32 * 1024 * 1024; // 32MB read buffer
+    private const CHUNK_SIZE = 128 * 1024 * 1024; // 128MB read buffer
 
     public function parse(string $inputPath, string $outputPath): void
     {
@@ -29,18 +28,17 @@ final class Parser
         // Calculate chunk boundaries aligned to newlines
         $boundaries = $this->calculateBoundaries($inputPath, $fileSize);
 
-        // Create shared memory segments
-        $shmSegments = [];
+        // Create socket pairs for IPC
+        $socketPairs = [];
 
         for ($i = 0; $i < self::NUM_WORKERS; ++$i) {
-            $shmKey = ftok($inputPath, chr($i));
-            $shm = shmop_open($shmKey, 'c', 0644, self::SHM_SIZE);
+            $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
 
-            if ($shm === false) {
-                throw new Exception("Unable to create shared memory segment for worker {$i}");
+            if ($pair === false) {
+                throw new Exception("Unable to create socket pair for worker {$i}");
             }
 
-            $shmSegments[$i] = $shm;
+            $socketPairs[$i] = $pair;
         }
 
         // Fork workers
@@ -54,26 +52,44 @@ final class Parser
             }
 
             if ($pid === 0) {
-                // CHILD: process chunk, write binary payload to shared memory.
+                // CHILD: close parent end, process chunk, write payload to socket.
+                fclose($socketPairs[$i][0]);
                 [$result, $pathStrById, $dateStrById] = $this->processChunk($inputPath, $boundaries[$i], $boundaries[$i + 1]);
                 $payload = function_exists('igbinary_serialize')
                     ? igbinary_serialize([$result, $pathStrById, $dateStrById])
                     : serialize([$result, $pathStrById, $dateStrById]);
-                $payloadLen = strlen($payload);
+                $sock = $socketPairs[$i][1];
+                $len = strlen($payload);
+                $written = 0;
 
-                if ($payloadLen > self::SHM_SIZE - 4) {
-                    exit(1);
+                while ($written < $len) {
+                    $w = fwrite($sock, substr($payload, $written, 65536));
+
+                    if ($w === false) {
+                        break;
+                    }
+
+                    $written += $w;
                 }
 
-                shmop_write($shmSegments[$i], pack('V', $payloadLen), 0);
-                shmop_write($shmSegments[$i], $payload, 4);
+                fclose($sock);
                 exit(0);
             }
 
+            // PARENT: close child end
+            fclose($socketPairs[$i][1]);
             $pids[$i] = $pid;
         }
 
-        // Wait for all children
+        // Read results from all workers
+        $payloads = [];
+
+        for ($i = 0; $i < self::NUM_WORKERS; ++$i) {
+            $data = stream_get_contents($socketPairs[$i][0]);
+            fclose($socketPairs[$i][0]);
+            $payloads[$i] = $data;
+        }
+
         foreach ($pids as $pid) {
             pcntl_waitpid($pid, $status);
         }
@@ -87,10 +103,7 @@ final class Parser
         $globalDateStr = [];
         $nextGlobalDateId = 0;
 
-        foreach ($shmSegments as $shm) {
-            $totalLen = unpack('V', shmop_read($shm, 0, 4))[1];
-            $data = shmop_read($shm, 4, $totalLen);
-            shmop_delete($shm);
+        foreach ($payloads as $data) {
             [$result, $pathStrById, $dateStrById] = function_exists('igbinary_unserialize')
                 ? igbinary_unserialize($data)
                 : unserialize($data);
@@ -221,9 +234,15 @@ final class Parser
         $nextDateId = 0;
         $consumed = 0;
         $total = $endOffset - $startOffset;
+        $chunkSize = self::CHUNK_SIZE;
 
         while ($consumed < $total) {
-            $readSize = min(self::CHUNK_SIZE, $total - $consumed);
+            $readSize = $total - $consumed;
+
+            if ($readSize > $chunkSize) {
+                $readSize = $chunkSize;
+            }
+
             $buffer = fread($input, $readSize);
 
             if ($buffer === false || $buffer === '') {
@@ -233,7 +252,7 @@ final class Parser
             $lastNewlinePosition = strrpos($buffer, "\n");
 
             if ($lastNewlinePosition === false) {
-                $consumed += strlen($buffer);
+                $consumed += $readSize;
                 continue;
             }
 
@@ -250,22 +269,22 @@ final class Parser
                 }
 
                 $path = substr($buffer, $pathStart, $commaPos - $pathStart);
-                $pathId = $pathIdByStr[$path] ?? null;
-
-                if ($pathId === null) {
+                if (isset($pathIdByStr[$path])) {
+                    $pathId = $pathIdByStr[$path];
+                } else {
                     $pathId = $nextPathId;
                     $pathIdByStr[$path] = $pathId;
-                    $pathStrById[$pathId] = $path;
+                    $pathStrById[] = $path;
                     ++$nextPathId;
                 }
 
                 $date = substr($buffer, $commaPos + 1, 10);
-                $dateId = $dateIdByStr[$date] ?? null;
-
-                if ($dateId === null) {
+                if (isset($dateIdByStr[$date])) {
+                    $dateId = $dateIdByStr[$date];
+                } else {
                     $dateId = $nextDateId;
                     $dateIdByStr[$date] = $dateId;
-                    $dateStrById[$dateId] = $date;
+                    $dateStrById[] = $date;
                     ++$nextDateId;
                 }
 
