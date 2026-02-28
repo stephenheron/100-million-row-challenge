@@ -55,9 +55,7 @@ final class Parser
                 // CHILD: close parent end, process chunk, write payload to socket.
                 fclose($socketPairs[$i][0]);
                 [$result, $pathStrById, $dateStrById] = $this->processChunk($inputPath, $boundaries[$i], $boundaries[$i + 1]);
-                $payload = function_exists('igbinary_serialize')
-                    ? igbinary_serialize([$result, $pathStrById, $dateStrById])
-                    : serialize([$result, $pathStrById, $dateStrById]);
+                $payload = serialize([$result, $pathStrById, $dateStrById]);
                 $sock = $socketPairs[$i][1];
                 $len = strlen($payload);
                 $written = 0;
@@ -104,9 +102,7 @@ final class Parser
         $nextGlobalDateId = 0;
 
         foreach ($payloads as $data) {
-            [$result, $pathStrById, $dateStrById] = function_exists('igbinary_unserialize')
-                ? igbinary_unserialize($data)
-                : unserialize($data);
+            [$result, $pathStrById, $dateStrById] = unserialize($data);
 
             $pathMap = [];
 
