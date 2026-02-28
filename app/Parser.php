@@ -255,36 +255,34 @@ final class Parser
 
     private function processChunk(string $inputPath, int $startOffset, int $endOffset): array
     {
-        $flat = array_fill(0, 300 * 1024, 0);
+        $flat = \array_fill(0, 300 * 1024, 0);
         $pathIdByStr = [];
         $pathStrById = [];
         $nextPathId = 0;
         $dateIdByStr = [];
         $dateStrById = [];
         $nextDateId = 0;
-        $buffer = file_get_contents($inputPath, false, null, $startOffset, $endOffset - $startOffset);
+        $buffer = \file_get_contents($inputPath, false, null, $startOffset, $endOffset - $startOffset);
 
         if ($buffer === false || $buffer === '') {
             return [[], $pathStrById, $dateStrById];
         }
 
-        $lastNewlinePosition = strrpos($buffer, "\n");
+        $lastNewlinePosition = \strlen($buffer) - 1;
 
-        if ($lastNewlinePosition === false) {
-            return [[], $pathStrById, $dateStrById];
+        if ($buffer[$lastNewlinePosition] !== "\n") {
+            $lastNewlinePosition = \strrpos($buffer, "\n");
+
+            if ($lastNewlinePosition === false) {
+                return [[], $pathStrById, $dateStrById];
+            }
         }
 
         $pos = 0;
 
         while ($pos < $lastNewlinePosition) {
-            $pathStart = $pos + 19;
-            $commaPos = strpos($buffer, ',', $pathStart);
-
-            if ($commaPos === false) {
-                break;
-            }
-
-            $path = substr($buffer, $pathStart, $commaPos - $pathStart);
+            $commaPos = \strpos($buffer, ',', $pos + 19);
+            $path = \substr($buffer, $pos + 19, $commaPos - $pos - 19);
 
             $pathId = $pathIdByStr[$path] ?? null;
 
@@ -295,7 +293,7 @@ final class Parser
                 ++$nextPathId;
             }
 
-            $date = substr($buffer, $commaPos + 1, 10);
+            $date = \substr($buffer, $commaPos + 1, 10);
 
             $dateId = $dateIdByStr[$date] ?? null;
 
