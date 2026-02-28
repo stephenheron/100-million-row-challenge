@@ -102,57 +102,37 @@ final class Parser
             }
         }
 
-        // Sort dates within each path
-        foreach ($visits as &$dates) {
-            ksort($dates, SORT_STRING);
+        // Collect all unique dates and sort once
+        $allDates = [];
+
+        foreach ($visits as $dates) {
+            foreach ($dates as $date => $_) {
+                $allDates[$date] = 1;
+            }
+        }
+
+        ksort($allDates, SORT_STRING);
+
+        // Rebuild each inner array in sorted date order
+        foreach ($visits as $path => &$dates) {
+            $sorted = [];
+
+            foreach ($allDates as $date => $_) {
+                if (isset($dates[$date])) {
+                    $sorted[$date] = $dates[$date];
+                }
+            }
+
+            $dates = $sorted;
         }
 
         unset($dates);
-
-        // Build JSON manually — structure is always {path: {date: int}}
-        $json = '{';
-        $firstPath = true;
-        $escapedPathCache = [];
-
-        foreach ($visits as $path => $dates) {
-            if ($firstPath) {
-                $firstPath = false;
-            } else {
-                $json .= ',';
-            }
-
-            $escapedPath = $escapedPathCache[$path] ?? null;
-
-            if ($escapedPath === null) {
-                $escapedPath = str_replace('/', '\\/', $path);
-                $escapedPathCache[$path] = $escapedPath;
-            }
-
-            $json .= "\n    \"$escapedPath\": {";
-            $firstDate = true;
-
-            foreach ($dates as $date => $count) {
-                if ($firstDate) {
-                    $firstDate = false;
-                } else {
-                    $json .= ',';
-                }
-
-                $json .= "\n        \"$date\": $count";
-            }
-
-            $json .= "\n    }";
-        }
-
-        $json .= "\n}";
 
         if ($wasGcEnabled) {
             gc_enable();
         }
 
-        $out = fopen($outputPath, 'wb');
-        fwrite($out, $json);
-        fclose($out);
+        file_put_contents($outputPath, json_encode($visits, JSON_PRETTY_PRINT));
     }
 
     private function calculateBoundaries(string $inputPath, int $fileSize): array
