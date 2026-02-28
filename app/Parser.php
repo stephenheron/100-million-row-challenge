@@ -6,7 +6,7 @@ use Exception;
 
 final class Parser
 {
-    private const NUM_WORKERS = 8;
+    private const NUM_WORKERS = 12;
 
     public function parse(string $inputPath, string $outputPath): void
     {
@@ -24,7 +24,7 @@ final class Parser
         $boundaries = $this->calculateBoundaries($inputPath, $fileSize);
 
         // Unique prefix for temp files
-        $tmpPrefix = sys_get_temp_dir() . '/parser_' . getmypid() . '_';
+        $tmpPrefix = './parser_' . getmypid() . '_';
 
         // Fork workers — each writes results to a temp file (no sockets needed)
         $pids = [];
