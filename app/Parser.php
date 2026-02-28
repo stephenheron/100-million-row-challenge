@@ -286,9 +286,9 @@ final class Parser
 
             $path = substr($buffer, $pathStart, $commaPos - $pathStart);
 
-            if (isset($pathIdByStr[$path])) {
-                $pathId = $pathIdByStr[$path];
-            } else {
+            $pathId = $pathIdByStr[$path] ?? null;
+
+            if ($pathId === null) {
                 $pathId = $nextPathId;
                 $pathIdByStr[$path] = $pathId;
                 $pathStrById[] = $path;
@@ -297,9 +297,9 @@ final class Parser
 
             $date = substr($buffer, $commaPos + 1, 10);
 
-            if (isset($dateIdByStr[$date])) {
-                $dateId = $dateIdByStr[$date];
-            } else {
+            $dateId = $dateIdByStr[$date] ?? null;
+
+            if ($dateId === null) {
                 $dateId = $nextDateId;
                 $dateIdByStr[$date] = $dateId;
                 $dateStrById[] = $date;
