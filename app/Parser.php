@@ -27,100 +27,55 @@ final class Parser
         // Calculate chunk boundaries aligned to newlines
         $boundaries = $this->calculateBoundaries($inputPath, $fileSize);
 
-        // Create shared memory segments
-        $shmSegments = [];
+        // Parent handles first chunk directly, child handles second chunk.
+        $visits = $this->processChunk($inputPath, $boundaries[0], $boundaries[1]);
+        $childWorker = 1;
+        $shmKey = ftok($inputPath, chr($childWorker));
+        $shm = shmop_open($shmKey, 'c', 0644, self::SHM_SIZE);
 
-        for ($i = 0; $i < self::NUM_WORKERS; ++$i) {
-            $shmKey = ftok($inputPath, chr($i));
-            $shm = shmop_open($shmKey, 'c', 0644, self::SHM_SIZE);
-
-            if ($shm === false) {
-                throw new Exception("Unable to create shared memory segment for worker {$i}");
-            }
-
-            $shmSegments[$i] = $shm;
+        if ($shm === false) {
+            throw new Exception("Unable to create shared memory segment for worker {$childWorker}");
         }
 
-        // Fork workers
-        $pids = [];
+        $pid = pcntl_fork();
 
-        for ($i = 0; $i < self::NUM_WORKERS; ++$i) {
-            $pid = pcntl_fork();
-
-            if ($pid === -1) {
-                throw new Exception("Unable to fork worker {$i}");
-            }
-
-            if ($pid === 0) {
-                // CHILD: process chunk, write directly to shared memory
-                // Format: path\tdate\tcount\n per entry, 4-byte length prefix
-                $result = $this->processChunk($inputPath, $boundaries[$i], $boundaries[$i + 1]);
-                $payload = '';
-
-                foreach ($result as $path => $dates) {
-                    foreach ($dates as $date => $count) {
-                        $payload .= $path . "\t" . $date . "\t" . $count . "\n";
-                    }
-                }
-
-                $payloadLen = strlen($payload);
-
-                if ($payloadLen > self::SHM_SIZE - 4) {
-                    exit(1);
-                }
-
-                shmop_write($shmSegments[$i], pack('V', $payloadLen), 0);
-                shmop_write($shmSegments[$i], $payload, 4);
-                exit(0);
-            }
-
-            $pids[$i] = $pid;
+        if ($pid === -1) {
+            throw new Exception("Unable to fork worker {$childWorker}");
         }
 
-        // Wait for all children
-        foreach ($pids as $pid) {
-            pcntl_waitpid($pid, $status);
+        if ($pid === 0) {
+            $result = $this->processChunk($inputPath, $boundaries[1], $boundaries[2]);
+            $offset = 4;
+
+            foreach ($result as $path => $dates) {
+                foreach ($dates as $date => $count) {
+                    $line = "$path\t$date\t$count\n";
+                    shmop_write($shm, $line, $offset);
+                    $offset += strlen($line);
+                }
+            }
+
+            shmop_write($shm, pack('V', $offset - 4), 0);
+            exit(0);
         }
 
-        // Merge results from shared memory
-        $visits = [];
+        pcntl_waitpid($pid, $status);
 
-        foreach ($shmSegments as $shm) {
-            $totalLen = unpack('V', shmop_read($shm, 0, 4))[1];
-            $data = shmop_read($shm, 4, $totalLen);
-            shmop_delete($shm);
-            $pos = 0;
+        $totalLen = unpack('V', shmop_read($shm, 0, 4))[1];
+        $data = shmop_read($shm, 4, $totalLen);
+        shmop_delete($shm);
 
-            while ($pos < $totalLen) {
-                $tab1 = strpos($data, "\t", $pos);
+        foreach (explode("\n", $data) as $line) {
+            if ($line === '') {
+                continue;
+            }
 
-                if ($tab1 === false) {
-                    break;
-                }
+            [$path, $date, $count] = explode("\t", $line, 3);
 
-                $tab2 = strpos($data, "\t", $tab1 + 1);
-
-                if ($tab2 === false) {
-                    break;
-                }
-
-                $nl = strpos($data, "\n", $tab2 + 1);
-
-                if ($nl === false) {
-                    $nl = $totalLen;
-                }
-
-                $path = substr($data, $pos, $tab1 - $pos);
-                $date = substr($data, $tab1 + 1, $tab2 - $tab1 - 1);
-                $count = (int) substr($data, $tab2 + 1, $nl - $tab2 - 1);
-
-                if (isset($visits[$path][$date])) {
-                    $visits[$path][$date] += $count;
-                } else {
-                    $visits[$path][$date] = $count;
-                }
-
-                $pos = $nl + 1;
+            if (isset($visits[$path][$date])) {
+                $visits[$path][$date] += (int) $count;
+            } else {
+                $visits[$path][$date] = (int) $count;
             }
         }
 
