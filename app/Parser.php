@@ -62,7 +62,7 @@ final class Parser
                     foreach ($dates as $date => $count) {
                         $writeBuffer .= $path . "\t" . $date . "\t" . $count . "\n";
 
-                        if (strlen($writeBuffer) >= 262144) {
+                        if (strlen($writeBuffer) >= 524288) {
                             shmop_write($shmSegments[$i], $writeBuffer, $offset);
                             $offset += strlen($writeBuffer);
                             $writeBuffer = '';
