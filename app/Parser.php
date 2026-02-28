@@ -212,7 +212,7 @@ final class Parser
             fseek($input, $startOffset);
         }
 
-        $visits = [];
+        $flat = array_fill(0, 300 * 1024, 0);
         $pathIdByStr = [];
         $pathStrById = [];
         $nextPathId = 0;
@@ -268,14 +268,7 @@ final class Parser
                     ++$nextDateId;
                 }
 
-                $inner = &$visits[$pathId];
-
-                if (isset($inner[$dateId])) {
-                    ++$inner[$dateId];
-                } else {
-                    $inner[$dateId] = 1;
-                }
-
+                ++$flat[($pathId << 10) | $dateId];
                 $pos = $commaPos + 27;
             }
 
@@ -283,6 +276,26 @@ final class Parser
         }
 
         fclose($input);
+
+        // Convert flat array back to nested for parent merge
+        $visits = [];
+
+        for ($pid = 0; $pid < $nextPathId; ++$pid) {
+            $base = $pid << 10;
+            $inner = [];
+
+            for ($did = 0; $did < $nextDateId; ++$did) {
+                $count = $flat[$base | $did];
+
+                if ($count > 0) {
+                    $inner[$did] = $count;
+                }
+            }
+
+            if ($inner) {
+                $visits[$pid] = $inner;
+            }
+        }
 
         return [$visits, $pathStrById, $dateStrById];
     }
