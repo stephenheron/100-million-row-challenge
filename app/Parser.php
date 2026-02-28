@@ -8,7 +8,7 @@ final class Parser
 {
     private const NUM_WORKERS = 2;
     private const SHM_SIZE = 32 * 1024 * 1024; // 32MB per worker
-    private const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB read buffer
+    private const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB read buffer
 
     public function parse(string $inputPath, string $outputPath): void
     {
