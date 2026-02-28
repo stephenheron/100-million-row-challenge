@@ -112,6 +112,7 @@ final class Parser
         // Build JSON manually — structure is always {path: {date: int}}
         $json = '{';
         $firstPath = true;
+        $escapedPathCache = [];
 
         foreach ($visits as $path => $dates) {
             if ($firstPath) {
@@ -120,7 +121,13 @@ final class Parser
                 $json .= ',';
             }
 
-            $escapedPath = str_replace('/', '\\/', $path);
+            $escapedPath = $escapedPathCache[$path] ?? null;
+
+            if ($escapedPath === null) {
+                $escapedPath = str_replace('/', '\\/', $path);
+                $escapedPathCache[$path] = $escapedPath;
+            }
+
             $json .= "\n    \"$escapedPath\": {";
             $firstDate = true;
 
