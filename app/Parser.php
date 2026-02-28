@@ -52,33 +52,19 @@ final class Parser
             }
 
             if ($pid === 0) {
-                // CHILD: process chunk, write directly to shared memory
-                // Format: path\tdate\tcount\n per entry, 4-byte length prefix
+                // CHILD: process chunk, write binary payload to shared memory.
                 [$result, $pathStrById, $dateStrById] = $this->processChunk($inputPath, $boundaries[$i], $boundaries[$i + 1]);
-                $offset = 4;
-                $writeBuffer = '';
+                $payload = function_exists('igbinary_serialize')
+                    ? igbinary_serialize([$result, $pathStrById, $dateStrById])
+                    : serialize([$result, $pathStrById, $dateStrById]);
+                $payloadLen = strlen($payload);
 
-                foreach ($result as $pathId => $dates) {
-                    $path = $pathStrById[$pathId];
-
-                    foreach ($dates as $dateId => $count) {
-                        $date = $dateStrById[$dateId];
-                        $writeBuffer .= $path . "\t" . $date . "\t" . $count . "\n";
-
-                        if (strlen($writeBuffer) >= 524288) {
-                            shmop_write($shmSegments[$i], $writeBuffer, $offset);
-                            $offset += strlen($writeBuffer);
-                            $writeBuffer = '';
-                        }
-                    }
+                if ($payloadLen > self::SHM_SIZE - 4) {
+                    exit(1);
                 }
 
-                if ($writeBuffer !== '') {
-                    shmop_write($shmSegments[$i], $writeBuffer, $offset);
-                    $offset += strlen($writeBuffer);
-                }
-
-                shmop_write($shmSegments[$i], pack('V', $offset - 4), 0);
+                shmop_write($shmSegments[$i], pack('V', $payloadLen), 0);
+                shmop_write($shmSegments[$i], $payload, 4);
                 exit(0);
             }
 
@@ -97,18 +83,21 @@ final class Parser
             $totalLen = unpack('V', shmop_read($shm, 0, 4))[1];
             $data = shmop_read($shm, 4, $totalLen);
             shmop_delete($shm);
+            [$result, $pathStrById, $dateStrById] = function_exists('igbinary_unserialize')
+                ? igbinary_unserialize($data)
+                : unserialize($data);
 
-            foreach (explode("\n", $data) as $line) {
-                if ($line === '') {
-                    continue;
-                }
+            foreach ($result as $pathId => $dates) {
+                $path = $pathStrById[$pathId];
 
-                [$path, $date, $count] = explode("\t", $line, 3);
+                foreach ($dates as $dateId => $count) {
+                    $date = $dateStrById[$dateId];
 
-                if (isset($visits[$path][$date])) {
-                    $visits[$path][$date] += (int) $count;
-                } else {
-                    $visits[$path][$date] = (int) $count;
+                    if (isset($visits[$path][$date])) {
+                        $visits[$path][$date] += $count;
+                    } else {
+                        $visits[$path][$date] = $count;
+                    }
                 }
             }
         }
