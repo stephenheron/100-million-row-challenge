@@ -160,7 +160,6 @@ final class Parser
         foreach ($workerData as [$result, $pathMap, $dateMap]) {
             foreach ($result as $localPathId => $dates) {
                 $base = $pathMap[$localPathId] * $numDates;
-
                 foreach ($dates as $localDateId => $count) {
                     $flat[$base + $dateMap[$localDateId]] += $count;
                 }
