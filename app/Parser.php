@@ -76,8 +76,14 @@ final class Parser
             pcntl_waitpid($pid, $status);
         }
 
-        // Merge results from shared memory
-        $visits = [];
+        // Merge results into global int-key arrays for speed
+        $globalVisits = [];
+        $globalPathId = [];
+        $globalPathStr = [];
+        $nextGlobalPathId = 0;
+        $globalDateId = [];
+        $globalDateStr = [];
+        $nextGlobalDateId = 0;
 
         foreach ($shmSegments as $shm) {
             $totalLen = unpack('V', shmop_read($shm, 0, 4))[1];
@@ -87,46 +93,73 @@ final class Parser
                 ? igbinary_unserialize($data)
                 : unserialize($data);
 
-            foreach ($result as $pathId => $dates) {
-                $path = $pathStrById[$pathId];
+            // Map this worker's local IDs to global IDs
+            $pathMap = [];
 
-                foreach ($dates as $dateId => $count) {
-                    $date = $dateStrById[$dateId];
+            foreach ($pathStrById as $localId => $str) {
+                $gid = $globalPathId[$str] ?? null;
 
-                    if (isset($visits[$path][$date])) {
-                        $visits[$path][$date] += $count;
+                if ($gid === null) {
+                    $gid = $nextGlobalPathId++;
+                    $globalPathId[$str] = $gid;
+                    $globalPathStr[$gid] = $str;
+                }
+
+                $pathMap[$localId] = $gid;
+            }
+
+            $dateMap = [];
+
+            foreach ($dateStrById as $localId => $str) {
+                $gid = $globalDateId[$str] ?? null;
+
+                if ($gid === null) {
+                    $gid = $nextGlobalDateId++;
+                    $globalDateId[$str] = $gid;
+                    $globalDateStr[$gid] = $str;
+                }
+
+                $dateMap[$localId] = $gid;
+            }
+
+            // Merge using global int IDs only
+            foreach ($result as $localPathId => $dates) {
+                $gp = $pathMap[$localPathId];
+                $inner = &$globalVisits[$gp];
+
+                foreach ($dates as $localDateId => $count) {
+                    $gd = $dateMap[$localDateId];
+
+                    if (isset($inner[$gd])) {
+                        $inner[$gd] += $count;
                     } else {
-                        $visits[$path][$date] = $count;
+                        $inner[$gd] = $count;
                     }
                 }
             }
         }
 
-        // Collect all unique dates and sort once
-        $allDates = [];
+        // Sort global date IDs by date string
+        $sortedDateGids = array_keys($globalDateStr);
+        usort($sortedDateGids, function ($a, $b) use ($globalDateStr) {
+            return $globalDateStr[$a] <=> $globalDateStr[$b];
+        });
 
-        foreach ($visits as $dates) {
-            foreach ($dates as $date => $_) {
-                $allDates[$date] = 1;
-            }
-        }
+        // Build final string-keyed array for json_encode
+        $visits = [];
 
-        ksort($allDates, SORT_STRING);
-
-        // Rebuild each inner array in sorted date order
-        foreach ($visits as $path => &$dates) {
+        foreach ($globalVisits as $gPathId => $dates) {
+            $path = $globalPathStr[$gPathId];
             $sorted = [];
 
-            foreach ($allDates as $date => $_) {
-                if (isset($dates[$date])) {
-                    $sorted[$date] = $dates[$date];
+            foreach ($sortedDateGids as $gDateId) {
+                if (isset($dates[$gDateId])) {
+                    $sorted[$globalDateStr[$gDateId]] = $dates[$gDateId];
                 }
             }
 
-            $dates = $sorted;
+            $visits[$path] = $sorted;
         }
-
-        unset($dates);
 
         if ($wasGcEnabled) {
             gc_enable();
