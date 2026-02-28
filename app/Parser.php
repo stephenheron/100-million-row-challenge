@@ -10,13 +10,9 @@ final class Parser
 
     public function parse(string $inputPath, string $outputPath): void
     {
-        ini_set('memory_limit', '2G');
+        ini_set('memory_limit', -1);
 
-        $wasGcEnabled = gc_enabled();
-
-        if ($wasGcEnabled) {
-            gc_disable();
-        }
+        gc_disable();
 
         $fileSize = filesize($inputPath);
 
@@ -27,20 +23,10 @@ final class Parser
         // Calculate chunk boundaries aligned to newlines
         $boundaries = $this->calculateBoundaries($inputPath, $fileSize);
 
-        // Create socket pairs for IPC
-        $socketPairs = [];
+        // Unique prefix for temp files
+        $tmpPrefix = sys_get_temp_dir() . '/parser_' . getmypid() . '_';
 
-        for ($i = 1; $i < self::NUM_WORKERS; ++$i) {
-            $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
-
-            if ($pair === false) {
-                throw new Exception("Unable to create socket pair for worker {$i}");
-            }
-
-            $socketPairs[$i] = $pair;
-        }
-
-        // Fork workers
+        // Fork workers — each writes results to a temp file (no sockets needed)
         $pids = [];
 
         for ($i = 1; $i < self::NUM_WORKERS; ++$i) {
@@ -51,50 +37,46 @@ final class Parser
             }
 
             if ($pid === 0) {
-                // CHILD: close parent end, process chunk, write payload to socket.
-                fclose($socketPairs[$i][0]);
-                [$result, $pathStrById, $dateStrById] = $this->processChunk($inputPath, $boundaries[$i], $boundaries[$i + 1]);
-                $payload = serialize([$result, $pathStrById, $dateStrById]);
-                $sock = $socketPairs[$i][1];
-                $len = strlen($payload);
-                $written = 0;
+                // CHILD: process chunk, write binary result to temp file
+                [$workerFlat, $nextPathId, $nextDateId, $pathStrById, $dateStrById] = $this->processChunk($inputPath, $boundaries[$i], $boundaries[$i + 1]);
 
-                while ($written < $len) {
-                    $w = fwrite($sock, substr($payload, $written, 65536));
+                $tmpFile = $tmpPrefix . $i;
+                $fp = fopen($tmpFile, 'wb');
 
-                    if ($w === false) {
-                        break;
+                // Header: nextPathId, nextDateId as 4-byte unsigned ints
+                fwrite($fp, pack('VV', $nextPathId, $nextDateId));
+
+                // Flat array as packed binary — only the used region (nextPathId * 1024 entries)
+                $usedSize = $nextPathId << 10;
+                if ($usedSize > 0) {
+                    // Pack in chunks to avoid massive argument list to pack()
+                    $chunkSize = 8192;
+                    for ($offset = 0; $offset < $usedSize; $offset += $chunkSize) {
+                        $slice = array_slice($workerFlat, $offset, min($chunkSize, $usedSize - $offset));
+                        fwrite($fp, pack('V*', ...$slice));
                     }
-
-                    $written += $w;
                 }
 
-                fclose($sock);
+                // String tables — small, serialize is fine for these
+                $stringData = serialize([$pathStrById, $dateStrById]);
+                fwrite($fp, $stringData);
+
+                fclose($fp);
                 exit(0);
             }
 
-            // PARENT: close child end
-            fclose($socketPairs[$i][1]);
             $pids[$i] = $pid;
         }
 
         // Parent processes the first chunk directly (avoids one IPC roundtrip)
-        [$parentResult, $parentPathStrById, $parentDateStrById] = $this->processChunk($inputPath, $boundaries[0], $boundaries[1]);
+        [$parentFlat, $parentNextPathId, $parentNextDateId, $parentPathStrById, $parentDateStrById] = $this->processChunk($inputPath, $boundaries[0], $boundaries[1]);
 
-        // Read results from child workers
-        $payloads = [];
-
-        for ($i = 1; $i < self::NUM_WORKERS; ++$i) {
-            $data = stream_get_contents($socketPairs[$i][0]);
-            fclose($socketPairs[$i][0]);
-            $payloads[$i] = $data;
-        }
-
+        // Wait for all children to finish writing
         foreach ($pids as $pid) {
             pcntl_waitpid($pid, $status);
         }
 
-        // Phase 1: Read all workers' data and build global ID mappings
+        // Phase 1: Build global ID mappings
         $workerData = [];
         $globalPathId = [];
         $globalPathStr = [];
@@ -124,12 +106,37 @@ final class Parser
             }
             $dateMap[$localId] = $gid;
         }
-        $workerData[] = [$parentResult, $pathMap, $dateMap];
+        $workerData[] = [$parentFlat, $parentNextPathId, $parentNextDateId, $pathMap, $dateMap];
 
-        // Process child results inline
-        foreach ($payloads as $data) {
-            [$result, $pathStrById, $dateStrById] = unserialize($data);
-            
+        unset($parentFlat, $parentPathStrById, $parentDateStrById);
+
+        // Read child results from temp files — binary unpack instead of unserialize
+        for ($i = 1; $i < self::NUM_WORKERS; ++$i) {
+            $tmpFile = $tmpPrefix . $i;
+            $raw = file_get_contents($tmpFile);
+            unlink($tmpFile);
+
+            // Read header
+            $header = unpack('VnextPathId/VnextDateId', $raw, 0);
+            $workerNextPathId = $header['nextPathId'];
+            $workerNextDateId = $header['nextDateId'];
+
+            // Read flat array from binary
+            $headerSize = 8; // 2 × 4 bytes
+            $usedSize = $workerNextPathId << 10;
+            $flatBytes = $usedSize * 4; // 4 bytes per uint32
+
+            $workerFlat = [];
+            if ($usedSize > 0) {
+                $workerFlat = array_values(unpack('V*', substr($raw, $headerSize, $flatBytes)));
+            }
+
+            // Read string tables from remainder
+            $stringOffset = $headerSize + $flatBytes;
+            [$pathStrById, $dateStrById] = unserialize(substr($raw, $stringOffset));
+
+            unset($raw);
+
             $pathMap = [];
             foreach ($pathStrById as $localId => $str) {
                 $gid = $globalPathId[$str] ?? null;
@@ -150,18 +157,24 @@ final class Parser
                 }
                 $dateMap[$localId] = $gid;
             }
-            $workerData[] = [$result, $pathMap, $dateMap];
+            $workerData[] = [$workerFlat, $workerNextPathId, $workerNextDateId, $pathMap, $dateMap];
         }
 
-        // Phase 2: Merge into flat pre-allocated array (no isset checks needed)
+        // Phase 2: Merge flat arrays directly — no nested array overhead
         $numDates = $nextGlobalDateId;
         $flat = array_fill(0, $nextGlobalPathId * $numDates, 0);
 
-        foreach ($workerData as [$result, $pathMap, $dateMap]) {
-            foreach ($result as $localPathId => $dates) {
-                $base = $pathMap[$localPathId] * $numDates;
-                foreach ($dates as $localDateId => $count) {
-                    $flat[$base + $dateMap[$localDateId]] += $count;
+        foreach ($workerData as [$workerFlat, $workerNextPathId, $workerNextDateId, $pathMap, $dateMap]) {
+            for ($pid = 0; $pid < $workerNextPathId; ++$pid) {
+                $localBase = $pid << 10;
+                $globalBase = $pathMap[$pid] * $numDates;
+
+                for ($did = 0; $did < $workerNextDateId; ++$did) {
+                    $count = $workerFlat[$localBase | $did];
+
+                    if ($count > 0) {
+                        $flat[$globalBase + $dateMap[$did]] += $count;
+                    }
                 }
             }
         }
@@ -169,7 +182,6 @@ final class Parser
         unset($workerData);
 
         // Phase 3: Sort dates and build final array for json_encode
-        // Use asort to sort by value while maintaining key association - more efficient than usort
         $sortedDateMap = $globalDateStr;
         asort($sortedDateMap);
 
@@ -188,10 +200,6 @@ final class Parser
             }
 
             $visits[$globalPathStr[$gPathId]] = $sorted;
-        }
-
-        if ($wasGcEnabled) {
-            gc_enable();
         }
 
         file_put_contents($outputPath, json_encode($visits, JSON_PRETTY_PRINT));
@@ -240,7 +248,7 @@ final class Parser
         $buffer = \file_get_contents($inputPath, false, null, $startOffset, $endOffset - $startOffset);
 
         if ($buffer === false || $buffer === '') {
-            return [[], $pathStrById, $dateStrById];
+            return [$flat, 0, 0, $pathStrById, $dateStrById];
         }
 
         $lastNewlinePosition = \strlen($buffer) - 1;
@@ -249,7 +257,7 @@ final class Parser
             $lastNewlinePosition = \strrpos($buffer, "\n");
 
             if ($lastNewlinePosition === false) {
-                return [[], $pathStrById, $dateStrById];
+                return [$flat, 0, 0, $pathStrById, $dateStrById];
             }
         }
 
@@ -283,26 +291,7 @@ final class Parser
             $pos = $commaPos + 27;
         }
 
-        // Convert flat array back to nested for parent merge
-        $visits = [];
-
-        for ($pid = 0; $pid < $nextPathId; ++$pid) {
-            $base = $pid << 10;
-            $inner = [];
-
-            for ($did = 0; $did < $nextDateId; ++$did) {
-                $count = $flat[$base | $did];
-
-                if ($count > 0) {
-                    $inner[$did] = $count;
-                }
-            }
-
-            if ($inner) {
-                $visits[$pid] = $inner;
-            }
-        }
-
-        return [$visits, $pathStrById, $dateStrById];
+        // Return flat array directly — no nested conversion
+        return [$flat, $nextPathId, $nextDateId, $pathStrById, $dateStrById];
     }
 }
