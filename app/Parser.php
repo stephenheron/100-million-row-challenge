@@ -55,17 +55,22 @@ final class Parser
                 // CHILD: process chunk, write directly to shared memory
                 // Format: path\tdate\tcount\n per entry, 4-byte length prefix
                 $result = $this->processChunk($inputPath, $boundaries[$i], $boundaries[$i + 1]);
-                $offset = 4;
+                $payload = '';
 
                 foreach ($result as $path => $dates) {
                     foreach ($dates as $date => $count) {
-                        $line = "$path\t$date\t$count\n";
-                        shmop_write($shmSegments[$i], $line, $offset);
-                        $offset += strlen($line);
+                        $payload .= $path . "\t" . $date . "\t" . $count . "\n";
                     }
                 }
 
-                shmop_write($shmSegments[$i], pack('V', $offset - 4), 0);
+                $payloadLen = strlen($payload);
+
+                if ($payloadLen > self::SHM_SIZE - 4) {
+                    exit(1);
+                }
+
+                shmop_write($shmSegments[$i], pack('V', $payloadLen), 0);
+                shmop_write($shmSegments[$i], $payload, 4);
                 exit(0);
             }
 
@@ -84,19 +89,38 @@ final class Parser
             $totalLen = unpack('V', shmop_read($shm, 0, 4))[1];
             $data = shmop_read($shm, 4, $totalLen);
             shmop_delete($shm);
+            $pos = 0;
 
-            foreach (explode("\n", $data) as $line) {
-                if ($line === '') {
-                    continue;
+            while ($pos < $totalLen) {
+                $tab1 = strpos($data, "\t", $pos);
+
+                if ($tab1 === false) {
+                    break;
                 }
 
-                [$path, $date, $count] = explode("\t", $line, 3);
+                $tab2 = strpos($data, "\t", $tab1 + 1);
+
+                if ($tab2 === false) {
+                    break;
+                }
+
+                $nl = strpos($data, "\n", $tab2 + 1);
+
+                if ($nl === false) {
+                    $nl = $totalLen;
+                }
+
+                $path = substr($data, $pos, $tab1 - $pos);
+                $date = substr($data, $tab1 + 1, $tab2 - $tab1 - 1);
+                $count = (int) substr($data, $tab2 + 1, $nl - $tab2 - 1);
 
                 if (isset($visits[$path][$date])) {
-                    $visits[$path][$date] += (int) $count;
+                    $visits[$path][$date] += $count;
                 } else {
-                    $visits[$path][$date] = (int) $count;
+                    $visits[$path][$date] = $count;
                 }
+
+                $pos = $nl + 1;
             }
         }
 
