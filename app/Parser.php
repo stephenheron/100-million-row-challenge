@@ -6,7 +6,7 @@ use Exception;
 
 final class Parser
 {
-    private const NUM_WORKERS = 2;
+    private const NUM_WORKERS = 8;
     private const SHM_SIZE = 32 * 1024 * 1024; // 32MB per worker
     private const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB read buffer
 
