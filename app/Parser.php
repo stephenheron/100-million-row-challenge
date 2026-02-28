@@ -7,7 +7,6 @@ use Exception;
 final class Parser
 {
     private const NUM_WORKERS = 8;
-    private const CHUNK_SIZE = 256 * 1024 * 1024; // 256MB read buffer
 
     public function parse(string $inputPath, string $outputPath): void
     {
@@ -193,10 +192,9 @@ final class Parser
         unset($workerData);
 
         // Phase 3: Sort dates and build final array for json_encode
-        $sortedDateGids = range(0, $numDates - 1);
-        usort($sortedDateGids, function ($a, $b) use ($globalDateStr) {
-            return $globalDateStr[$a] <=> $globalDateStr[$b];
-        });
+        // Use asort to sort by value while maintaining key association - more efficient than usort
+        $sortedDateMap = $globalDateStr;
+        asort($sortedDateMap);
 
         $visits = [];
 
@@ -204,11 +202,11 @@ final class Parser
             $sorted = [];
             $base = $gPathId * $numDates;
 
-            foreach ($sortedDateGids as $gDateId) {
+            foreach ($sortedDateMap as $gDateId => $dateStr) {
                 $count = $flat[$base + $gDateId];
 
                 if ($count > 0) {
-                    $sorted[$globalDateStr[$gDateId]] = $count;
+                    $sorted[$dateStr] = $count;
                 }
             }
 
