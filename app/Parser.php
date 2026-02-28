@@ -214,13 +214,6 @@ final class Parser
 
     private function processChunk(string $inputPath, int $startOffset, int $endOffset): array
     {
-        $input = fopen($inputPath, 'rb');
-        stream_set_read_buffer($input, 8 * 1024 * 1024);
-
-        if ($startOffset > 0) {
-            fseek($input, $startOffset);
-        }
-
         $flat = array_fill(0, 300 * 1024, 0);
         $pathIdByStr = [];
         $pathStrById = [];
@@ -228,68 +221,53 @@ final class Parser
         $dateIdByStr = [];
         $dateStrById = [];
         $nextDateId = 0;
-        $consumed = 0;
-        $total = $endOffset - $startOffset;
-        $chunkSize = self::CHUNK_SIZE;
+        $buffer = file_get_contents($inputPath, false, null, $startOffset, $endOffset - $startOffset);
 
-        while ($consumed < $total) {
-            $readSize = $total - $consumed;
+        if ($buffer === false || $buffer === '') {
+            return [[], $pathStrById, $dateStrById];
+        }
 
-            if ($readSize > $chunkSize) {
-                $readSize = $chunkSize;
-            }
+        $lastNewlinePosition = strrpos($buffer, "\n");
 
-            $buffer = fread($input, $readSize);
+        if ($lastNewlinePosition === false) {
+            return [[], $pathStrById, $dateStrById];
+        }
 
-            if ($buffer === false || $buffer === '') {
+        $pos = 0;
+
+        while ($pos < $lastNewlinePosition) {
+            $pathStart = $pos + 19;
+            $commaPos = strpos($buffer, ',', $pathStart);
+
+            if ($commaPos === false) {
                 break;
             }
 
-            $lastNewlinePosition = strrpos($buffer, "\n");
+            $path = substr($buffer, $pathStart, $commaPos - $pathStart);
 
-            if ($lastNewlinePosition === false) {
-                $consumed += $readSize;
-                continue;
+            if (isset($pathIdByStr[$path])) {
+                $pathId = $pathIdByStr[$path];
+            } else {
+                $pathId = $nextPathId;
+                $pathIdByStr[$path] = $pathId;
+                $pathStrById[] = $path;
+                ++$nextPathId;
             }
 
-            $consumed += $lastNewlinePosition + 1;
-            fseek($input, $startOffset + $consumed);
-            $pos = 0;
+            $date = substr($buffer, $commaPos + 1, 10);
 
-            while ($pos < $lastNewlinePosition) {
-                $pathStart = $pos + 19;
-                $commaPos = strpos($buffer, ',', $pathStart);
-
-                if ($commaPos === false) {
-                    break;
-                }
-
-                $path = substr($buffer, $pathStart, $commaPos - $pathStart);
-                if (isset($pathIdByStr[$path])) {
-                    $pathId = $pathIdByStr[$path];
-                } else {
-                    $pathId = $nextPathId;
-                    $pathIdByStr[$path] = $pathId;
-                    $pathStrById[] = $path;
-                    ++$nextPathId;
-                }
-
-                $date = substr($buffer, $commaPos + 1, 10);
-                if (isset($dateIdByStr[$date])) {
-                    $dateId = $dateIdByStr[$date];
-                } else {
-                    $dateId = $nextDateId;
-                    $dateIdByStr[$date] = $dateId;
-                    $dateStrById[] = $date;
-                    ++$nextDateId;
-                }
-
-                ++$flat[($pathId << 10) | $dateId];
-                $pos = $commaPos + 27;
+            if (isset($dateIdByStr[$date])) {
+                $dateId = $dateIdByStr[$date];
+            } else {
+                $dateId = $nextDateId;
+                $dateIdByStr[$date] = $dateId;
+                $dateStrById[] = $date;
+                ++$nextDateId;
             }
+
+            ++$flat[($pathId << 10) | $dateId];
+            $pos = $commaPos + 27;
         }
-
-        fclose($input);
 
         // Convert flat array back to nested for parent merge
         $visits = [];
