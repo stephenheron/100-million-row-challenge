@@ -219,25 +219,26 @@ final class Parser
         $dateIdByStr = [];
         $dateStrById = [];
         $nextDateId = 0;
-        $buffer = '';
-        $bytesRemaining = $endOffset - $startOffset;
+        $consumed = 0;
+        $total = $endOffset - $startOffset;
 
-        while ($bytesRemaining > 0) {
-            $readSize = min(self::CHUNK_SIZE, $bytesRemaining);
-            $chunk = fread($input, $readSize);
+        while ($consumed < $total) {
+            $readSize = min(self::CHUNK_SIZE, $total - $consumed);
+            $buffer = fread($input, $readSize);
 
-            if ($chunk === false || $chunk === '') {
+            if ($buffer === false || $buffer === '') {
                 break;
             }
 
-            $bytesRemaining -= strlen($chunk);
-            $buffer .= $chunk;
             $lastNewlinePosition = strrpos($buffer, "\n");
 
             if ($lastNewlinePosition === false) {
+                $consumed += strlen($buffer);
                 continue;
             }
 
+            $consumed += $lastNewlinePosition + 1;
+            fseek($input, $startOffset + $consumed);
             $pos = 0;
 
             while ($pos < $lastNewlinePosition) {
@@ -271,8 +272,6 @@ final class Parser
                 ++$flat[($pathId << 10) | $dateId];
                 $pos = $commaPos + 27;
             }
-
-            $buffer = substr($buffer, $lastNewlinePosition + 1);
         }
 
         fclose($input);
