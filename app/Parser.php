@@ -6,7 +6,7 @@ use Exception;
 
 final class Parser
 {
-    private const NUM_WORKERS = 12;
+    private const NUM_WORKERS = 10;
 
     public function parse(string $inputPath, string $outputPath): void
     {
