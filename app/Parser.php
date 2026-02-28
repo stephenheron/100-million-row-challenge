@@ -7,7 +7,7 @@ use Exception;
 final class Parser
 {
     private const NUM_WORKERS = 8;
-    private const CHUNK_SIZE = 128 * 1024 * 1024; // 128MB read buffer
+    private const CHUNK_SIZE = 256 * 1024 * 1024; // 256MB read buffer
 
     public function parse(string $inputPath, string $outputPath): void
     {
