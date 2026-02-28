@@ -168,17 +168,7 @@ final class Parser
 
     private function processChunk(string $inputPath, int $startOffset, int $endOffset): array
     {
-        $input = fopen($inputPath, 'rb');
-
-        if ($input === false) {
-            throw new Exception("Unable to open input file: {$inputPath}");
-        }
-
-        stream_set_read_buffer($input, 8 * 1024 * 1024);
-
-        if ($startOffset > 0) {
-            fseek($input, $startOffset);
-        }
+        $buffer = file_get_contents($inputPath, false, null, $startOffset, $endOffset - $startOffset);
 
         $visits = [];
         $pathIdByStr = [];
@@ -187,105 +177,53 @@ final class Parser
         $dateIdByStr = [];
         $dateStrById = [];
         $nextDateId = 0;
-        $buffer = '';
-        $bytesRemaining = $endOffset - $startOffset;
 
-        while ($bytesRemaining > 0) {
-            $readSize = min(self::CHUNK_SIZE, $bytesRemaining);
-            $chunk = fread($input, $readSize);
+        $lastNewlinePosition = strrpos($buffer, "\n");
 
-            if ($chunk === false || $chunk === '') {
+        if ($lastNewlinePosition === false) {
+            return [$visits, $pathStrById, $dateStrById];
+        }
+
+        $pos = 0;
+
+        while ($pos < $lastNewlinePosition) {
+            $pathStart = $pos + 19;
+            $commaPos = strpos($buffer, ',', $pathStart);
+
+            if ($commaPos === false) {
                 break;
             }
 
-            $bytesRemaining -= strlen($chunk);
+            $path = substr($buffer, $pathStart, $commaPos - $pathStart);
+            $pathId = $pathIdByStr[$path] ?? null;
 
-            $buffer .= $chunk;
-            $lastNewlinePosition = strrpos($buffer, "\n");
-
-            if ($lastNewlinePosition === false) {
-                continue;
+            if ($pathId === null) {
+                $pathId = $nextPathId;
+                $pathIdByStr[$path] = $pathId;
+                $pathStrById[$pathId] = $path;
+                ++$nextPathId;
             }
 
-            $pos = 0;
+            $date = substr($buffer, $commaPos + 1, 10);
+            $dateId = $dateIdByStr[$date] ?? null;
 
-            while ($pos < $lastNewlinePosition) {
-                $commaPos = strpos($buffer, ',', $pos + 19);
-
-                if ($commaPos === false) {
-                    break;
-                }
-
-                $path = substr($buffer, $pos + 19, $commaPos - $pos - 19);
-                $pathId = $pathIdByStr[$path] ?? null;
-
-                if ($pathId === null) {
-                    $pathId = $nextPathId;
-                    $pathIdByStr[$path] = $pathId;
-                    $pathStrById[$pathId] = $path;
-                    ++$nextPathId;
-                }
-
-                $date = substr($buffer, $commaPos + 1, 10);
-                $dateId = $dateIdByStr[$date] ?? null;
-
-                if ($dateId === null) {
-                    $dateId = $nextDateId;
-                    $dateIdByStr[$date] = $dateId;
-                    $dateStrById[$dateId] = $date;
-                    ++$nextDateId;
-                }
-
-                $inner = &$visits[$pathId];
-
-                if (isset($inner[$dateId])) {
-                    ++$inner[$dateId];
-                } else {
-                    $inner[$dateId] = 1;
-                }
-
-                $pos = $commaPos + 27;
+            if ($dateId === null) {
+                $dateId = $nextDateId;
+                $dateIdByStr[$date] = $dateId;
+                $dateStrById[$dateId] = $date;
+                ++$nextDateId;
             }
 
-            $buffer = substr($buffer, $lastNewlinePosition + 1);
+            $inner = &$visits[$pathId];
+
+            if (isset($inner[$dateId])) {
+                ++$inner[$dateId];
+            } else {
+                $inner[$dateId] = 1;
+            }
+
+            $pos = $commaPos + 27;
         }
-
-        // Handle remaining buffer (last partial line in this chunk)
-        if ($buffer !== '' && $bytesRemaining <= 0) {
-            $commaPos = strpos($buffer, ',', 19);
-
-            if ($commaPos !== false) {
-                $path = substr($buffer, 19, $commaPos - 19);
-                $pathId = $pathIdByStr[$path] ?? null;
-
-                if ($pathId === null) {
-                    $pathId = $nextPathId;
-                    $pathIdByStr[$path] = $pathId;
-                    $pathStrById[$pathId] = $path;
-                    ++$nextPathId;
-                }
-
-                $date = substr($buffer, $commaPos + 1, 10);
-                $dateId = $dateIdByStr[$date] ?? null;
-
-                if ($dateId === null) {
-                    $dateId = $nextDateId;
-                    $dateIdByStr[$date] = $dateId;
-                    $dateStrById[$dateId] = $date;
-                    ++$nextDateId;
-                }
-
-                $inner = &$visits[$pathId];
-
-                if (isset($inner[$dateId])) {
-                    ++$inner[$dateId];
-                } else {
-                    $inner[$dateId] = 1;
-                }
-            }
-        }
-
-        fclose($input);
 
         return [$visits, $pathStrById, $dateStrById];
     }
