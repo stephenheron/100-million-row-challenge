@@ -103,76 +103,54 @@ final class Parser
         $globalDateStr = [];
         $nextGlobalDateId = 0;
 
-        $ingestWorker = static function (
-            array $result,
-            array $pathStrById,
-            array $dateStrById,
-            array &$workerData,
-            array &$globalPathId,
-            array &$globalPathStr,
-            int &$nextGlobalPathId,
-            array &$globalDateId,
-            array &$globalDateStr,
-            int &$nextGlobalDateId
-        ): void {
-            $pathMap = [];
+        // Process parent result inline
+        $pathMap = [];
+        foreach ($parentPathStrById as $localId => $str) {
+            $gid = $globalPathId[$str] ?? null;
+            if ($gid === null) {
+                $gid = $nextGlobalPathId++;
+                $globalPathId[$str] = $gid;
+                $globalPathStr[$gid] = $str;
+            }
+            $pathMap[$localId] = $gid;
+        }
+        $dateMap = [];
+        foreach ($parentDateStrById as $localId => $str) {
+            $gid = $globalDateId[$str] ?? null;
+            if ($gid === null) {
+                $gid = $nextGlobalDateId++;
+                $globalDateId[$str] = $gid;
+                $globalDateStr[$gid] = $str;
+            }
+            $dateMap[$localId] = $gid;
+        }
+        $workerData[] = [$parentResult, $pathMap, $dateMap];
 
+        // Process child results inline
+        foreach ($payloads as $data) {
+            [$result, $pathStrById, $dateStrById] = unserialize($data);
+            
+            $pathMap = [];
             foreach ($pathStrById as $localId => $str) {
                 $gid = $globalPathId[$str] ?? null;
-
                 if ($gid === null) {
                     $gid = $nextGlobalPathId++;
                     $globalPathId[$str] = $gid;
                     $globalPathStr[$gid] = $str;
                 }
-
                 $pathMap[$localId] = $gid;
             }
-
             $dateMap = [];
-
             foreach ($dateStrById as $localId => $str) {
                 $gid = $globalDateId[$str] ?? null;
-
                 if ($gid === null) {
                     $gid = $nextGlobalDateId++;
                     $globalDateId[$str] = $gid;
                     $globalDateStr[$gid] = $str;
                 }
-
                 $dateMap[$localId] = $gid;
             }
-
             $workerData[] = [$result, $pathMap, $dateMap];
-        };
-
-        $ingestWorker(
-            $parentResult,
-            $parentPathStrById,
-            $parentDateStrById,
-            $workerData,
-            $globalPathId,
-            $globalPathStr,
-            $nextGlobalPathId,
-            $globalDateId,
-            $globalDateStr,
-            $nextGlobalDateId
-        );
-
-        foreach ($payloads as $data) {
-            [$result, $pathStrById, $dateStrById] = unserialize($data);
-            $ingestWorker(
-                $result,
-                $pathStrById,
-                $dateStrById,
-                $workerData,
-                $globalPathId,
-                $globalPathStr,
-                $nextGlobalPathId,
-                $globalDateId,
-                $globalDateStr,
-                $nextGlobalDateId
-            );
         }
 
         // Phase 2: Merge into flat pre-allocated array (no isset checks needed)
