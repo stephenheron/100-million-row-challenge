@@ -47,7 +47,7 @@ final class Parser
                 fwrite($fp, pack('VV', $nextPathId, $nextDateId));
 
                 // Flat array as packed binary — only the used region (nextPathId * 1024 entries)
-                $usedSize = $nextPathId << 10;
+                $usedSize = $nextPathId << 11;
                 if ($usedSize > 0) {
                     // Pack in chunks to avoid massive argument list to pack()
                     $chunkSize = 8192;
@@ -123,7 +123,7 @@ final class Parser
 
             // Read flat array from binary
             $headerSize = 8; // 2 × 4 bytes
-            $usedSize = $workerNextPathId << 10;
+            $usedSize = $workerNextPathId << 11;
             $flatBytes = $usedSize * 4; // 4 bytes per uint32
 
             $workerFlat = [];
@@ -166,7 +166,7 @@ final class Parser
 
         foreach ($workerData as [$workerFlat, $workerNextPathId, $workerNextDateId, $pathMap, $dateMap]) {
             for ($pid = 0; $pid < $workerNextPathId; ++$pid) {
-                $localBase = $pid << 10;
+                $localBase = $pid << 11;
                 $globalBase = $pathMap[$pid] * $numDates;
 
                 for ($did = 0; $did < $workerNextDateId; ++$did) {
@@ -238,7 +238,7 @@ final class Parser
 
     private function processChunk(string $inputPath, int $startOffset, int $endOffset): array
     {
-        $flat = \array_fill(0, 300 * 1024, 0);
+        $flat = \array_fill(0, 300 * 2048, 0);
         $pathIdByStr = [];
         $pathStrById = [];
         $nextPathId = 0;
@@ -287,7 +287,7 @@ final class Parser
                 ++$nextDateId;
             }
 
-            ++$flat[($pathId << 10) | $dateId];
+            ++$flat[($pathId << 11) | $dateId];
             $pos = $commaPos + 27;
         }
 
