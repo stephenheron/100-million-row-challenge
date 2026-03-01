@@ -46,7 +46,7 @@ final class Parser
                 // Header: nextPathId, nextDateId as 4-byte unsigned ints
                 fwrite($fp, pack('VV', $nextPathId, $nextDateId));
 
-                // Flat array as packed binary — only the used region (nextPathId * 1024 entries)
+                // Flat array as packed binary — only the used region (nextPathId * 2048 entries)
                 $usedSize = $nextPathId << 11;
                 if ($usedSize > 0) {
                     // Pack in chunks to avoid massive argument list to pack()
@@ -239,7 +239,7 @@ final class Parser
     private function processChunk(string $inputPath, int $startOffset, int $endOffset): array
     {
         $flat = \array_fill(0, 300 * 2048, 0);
-        $pathIdByStr = [];
+        $pathBaseByStr = [];
         $pathStrById = [];
         $nextPathId = 0;
         $dateIdByStr = [];
@@ -251,34 +251,41 @@ final class Parser
             return [$flat, 0, 0, $pathStrById, $dateStrById];
         }
 
-        $lastNewlinePosition = \strlen($buffer) - 1;
+        $limit = \strlen($buffer);
 
-        if ($buffer[$lastNewlinePosition] !== "\n") {
+        if ($buffer[$limit - 1] !== "\n") {
             $lastNewlinePosition = \strrpos($buffer, "\n");
 
             if ($lastNewlinePosition === false) {
                 return [$flat, 0, 0, $pathStrById, $dateStrById];
             }
+
+            $limit = $lastNewlinePosition + 1;
         }
 
         $pos = 0;
+        $pathStartOffset = 19;
+        $nextLineOffset = 27;
 
-        while ($pos < $lastNewlinePosition) {
-            $commaPos = \strpos($buffer, ',', $pos + 19);
-            $path = \substr($buffer, $pos + 19, $commaPos - $pos - 19);
+        while ($pos < $limit) {
+            $pathStart = $pos + $pathStartOffset;
+            $commaPos = \strpos($buffer, ',', $pathStart);
+            $path = \substr($buffer, $pathStart, $commaPos - $pathStart);
+            $pathBase = $pathBaseByStr[$path] ?? null;
+            $date = \substr($buffer, $commaPos + 1, 10);
+            $dateId = $dateIdByStr[$date] ?? null;
+            if ($pathBase !== null && $dateId !== null) {
+                ++$flat[$pathBase + $dateId];
+                $pos = $commaPos + $nextLineOffset;
+                continue;
+            }
 
-            $pathId = $pathIdByStr[$path] ?? null;
-
-            if ($pathId === null) {
-                $pathId = $nextPathId;
-                $pathIdByStr[$path] = $pathId;
+            if ($pathBase === null) {
+                $pathBase = $nextPathId << 11;
+                $pathBaseByStr[$path] = $pathBase;
                 $pathStrById[] = $path;
                 ++$nextPathId;
             }
-
-            $date = \substr($buffer, $commaPos + 1, 10);
-
-            $dateId = $dateIdByStr[$date] ?? null;
 
             if ($dateId === null) {
                 $dateId = $nextDateId;
@@ -287,8 +294,8 @@ final class Parser
                 ++$nextDateId;
             }
 
-            ++$flat[($pathId << 11) | $dateId];
-            $pos = $commaPos + 27;
+            ++$flat[$pathBase + $dateId];
+            $pos = $commaPos + $nextLineOffset;
         }
 
         // Return flat array directly — no nested conversion
